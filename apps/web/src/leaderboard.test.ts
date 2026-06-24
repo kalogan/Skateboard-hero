@@ -5,6 +5,7 @@ import {
   submitScore,
   sanitizeName,
   MAX_ENTRIES,
+  NAME_MAX_LEN,
   type ScoreEntry,
 } from './leaderboard.js';
 
@@ -47,11 +48,15 @@ describe('leaderboard — load / persist', () => {
   });
 });
 
-describe('leaderboard — sort & trim to 10', () => {
-  it('keeps only the top 10 after inserts', () => {
+describe('leaderboard — sort & trim to 5', () => {
+  it('top-5 cap is exactly 5', () => {
+    expect(MAX_ENTRIES).toBe(5);
+  });
+
+  it('keeps only the top 5 after inserts', () => {
     const s = fakeStorage();
-    // Insert 15 distinct scores in arbitrary order.
-    const scores = [50, 900, 120, 770, 300, 640, 10, 480, 200, 560, 999, 30, 850, 410, 720];
+    // Insert 12 distinct scores in arbitrary order.
+    const scores = [50, 900, 120, 770, 300, 640, 10, 480, 200, 560, 999, 30];
     for (const sc of scores) submitScore(s, 'AAA', sc);
 
     const board = loadLeaderboard(s);
@@ -63,15 +68,25 @@ describe('leaderboard — sort & trim to 10', () => {
   it('submitScore returns the trimmed board it persisted', () => {
     const s = fakeStorage();
     let board: ScoreEntry[] = [];
-    for (let i = 1; i <= 12; i++) board = submitScore(s, 'AAA', i * 10);
+    for (let i = 1; i <= 7; i++) board = submitScore(s, 'AAA', i * 10);
     expect(board).toHaveLength(MAX_ENTRIES);
     expect(board).toEqual(loadLeaderboard(s));
     // Lowest two (10, 20) were trimmed; 30 is now the floor.
     expect(board[board.length - 1]!.score).toBe(30);
+    expect(board.map((e) => e.score)).toEqual([70, 60, 50, 40, 30]);
+  });
+
+  it('a seed of more than 5 entries loads back trimmed to 5', () => {
+    const s = seed(
+      Array.from({ length: 9 }, (_, i) => ({ name: 'AAA', score: (i + 1) * 100 })),
+    );
+    const board = loadLeaderboard(s);
+    expect(board).toHaveLength(MAX_ENTRIES);
+    expect(board.map((e) => e.score)).toEqual([900, 800, 700, 600, 500]);
   });
 });
 
-describe('leaderboard — qualifies at boundaries', () => {
+describe('leaderboard — qualifies at boundaries (top 5)', () => {
   it('any positive score qualifies on an empty board', () => {
     expect(qualifies(fakeStorage(), 1)).toBe(true);
   });
@@ -79,16 +94,23 @@ describe('leaderboard — qualifies at boundaries', () => {
   it('qualifies while the board has open slots', () => {
     const s = fakeStorage();
     for (let i = 0; i < MAX_ENTRIES - 1; i++) submitScore(s, 'AAA', 500);
-    expect(loadLeaderboard(s)).toHaveLength(MAX_ENTRIES - 1);
-    expect(qualifies(s, 1)).toBe(true); // 9 entries → slot free
+    expect(loadLeaderboard(s)).toHaveLength(MAX_ENTRIES - 1); // 4 entries
+    expect(qualifies(s, 1)).toBe(true); // slot free
   });
 
-  it('on a full board, must strictly beat the lowest', () => {
+  it('the 5th slot is still open with 4 entries', () => {
+    const s = seed(Array.from({ length: 4 }, () => ({ name: 'AAA', score: 1000 })));
+    expect(loadLeaderboard(s)).toHaveLength(4);
+    expect(qualifies(s, 1)).toBe(true); // 5th slot is open
+  });
+
+  it('on a full board of 5, must strictly beat the lowest', () => {
     const entries = Array.from({ length: MAX_ENTRIES }, (_, i) => ({
       name: 'AAA',
       score: 100 + i * 10, // lowest = 100
     }));
     const s = seed(entries);
+    expect(loadLeaderboard(s)).toHaveLength(MAX_ENTRIES);
     expect(qualifies(s, 100)).toBe(false); // ties the floor → no
     expect(qualifies(s, 99)).toBe(false); // below floor → no
     expect(qualifies(s, 101)).toBe(true); // above floor → yes
@@ -103,24 +125,56 @@ describe('leaderboard — qualifies at boundaries', () => {
   });
 });
 
-describe('leaderboard — name sanitization', () => {
-  it('uppercases and keeps only A–Z / 0–9, capped at 3', () => {
-    expect(sanitizeName('abc')).toBe('ABC');
-    expect(sanitizeName('a1z')).toBe('A1Z');
-    expect(sanitizeName('hello')).toBe('HEL');
-    expect(sanitizeName('!@#x9')).toBe('X9A'); // strips symbols, pads short
+describe('leaderboard — name sanitization (typed names)', () => {
+  it('keeps readable free-text names, trimming the ends', () => {
+    expect(sanitizeName('Kevin')).toBe('Kevin');
+    expect(sanitizeName('  Tony Hawk  ')).toBe('Tony Hawk');
+    expect(sanitizeName('rad_dude!')).toBe('rad_dude!');
   });
 
-  it('falls back to AAA for empty / all-invalid input', () => {
-    expect(sanitizeName('')).toBe('AAA');
-    expect(sanitizeName('   ')).toBe('AAA');
-    expect(sanitizeName('!!!')).toBe('AAA');
+  it('collapses internal whitespace runs to a single space', () => {
+    expect(sanitizeName('a\t\tb')).toBe('a b');
+    expect(sanitizeName('x   y   z')).toBe('x y z');
+    expect(sanitizeName('line\nbreak')).toBe('line break');
+  });
+
+  it('caps the name to NAME_MAX_LEN characters', () => {
+    expect(NAME_MAX_LEN).toBe(12);
+    expect(sanitizeName('ABCDEFGHIJKLMNOP')).toBe('ABCDEFGHIJKL');
+    expect(sanitizeName('ABCDEFGHIJKL')).toHaveLength(NAME_MAX_LEN);
+    // Trailing whitespace exposed by the cap is trimmed away.
+    expect(sanitizeName('Hello World Wide')).toBe('Hello World');
+  });
+
+  it('strips control characters', () => {
+    const NUL = String.fromCharCode(0x00);
+    const BEL = String.fromCharCode(0x07);
+    const DEL = String.fromCharCode(0x7f);
+    const C1 = String.fromCharCode(0x9b);
+    expect(sanitizeName(`a${NUL}b${BEL}c`)).toBe('abc'); // C0 controls
+    expect(sanitizeName(`x${DEL}y`)).toBe('xy'); // DEL
+    expect(sanitizeName(`p${C1}q`)).toBe('pq'); // C1 control
+    expect(sanitizeName('plain')).toBe('plain');
+  });
+
+  it('falls back to the default for empty / whitespace / control-only input', () => {
+    const DEL = String.fromCharCode(0x7f);
+    expect(sanitizeName('')).toBe('YOU');
+    expect(sanitizeName('   ')).toBe('YOU');
+    expect(sanitizeName('\t\n')).toBe('YOU');
+    expect(sanitizeName(DEL + DEL)).toBe('YOU');
   });
 
   it('sanitizes names on submit', () => {
     const s = fakeStorage();
-    submitScore(s, 'k!', 400);
-    expect(loadLeaderboard(s)[0]!.name).toBe('KAA');
+    submitScore(s, '  Rad \t Skater  ', 400);
+    expect(loadLeaderboard(s)[0]!.name).toBe('Rad Skater');
+  });
+
+  it('empty submitted name becomes the default', () => {
+    const s = fakeStorage();
+    submitScore(s, '', 400);
+    expect(loadLeaderboard(s)[0]!.name).toBe('YOU');
   });
 });
 

@@ -2,8 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "pnpm install --frozen-lockfile --ignore-scripts",
-  "buildCommand": "pnpm --filter @skate/web build",
-  "outputDirectory": "apps/web/dist",
+  "buildCommand": "pnpm --filter @skate/web build && { [ -d dist ] || cp -r apps/web/dist dist; }",
+  "outputDirectory": "dist",
   "github": {
     "silent": true
   },

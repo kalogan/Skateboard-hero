@@ -52,9 +52,10 @@
   HUD/start/game-over, high-score; + Architect runtime smoke.
 
 ## Last known-green gate counts
-- Gestures+Preview wave (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
-  · core **41** · render-canvas **15** · web **52** = **108** tests.
-- Runtime smoke: ✅ game (start→play→bail→retry) + /preview, zero console/page errors.
+- Theme-seam wave (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
+  · core **41** · render-canvas **17** · web **60** = **118** tests.
+- Runtime smoke: ✅ game + /preview (incl. Night theme preset), zero console/page errors.
+- Renderer now takes a `RenderTheme`; `/preview` has live palette/parallax/ground knobs + presets.
 
 ## Active constraints
 See `CLAUDE.md` §constraints. Enforced by eslint arch-guard + `lint:content` +

@@ -34,6 +34,12 @@ type TrickGesture = TrickDef['gesture'];
 import { createRenderer, type Renderer } from '@skate/render-canvas';
 import { createGameAudio, type GameAudio } from '../audio/index.js';
 import { buildConfig, defaultKnobs, type PreviewKnobs } from './buildConfig.js';
+import {
+  buildTheme,
+  defaultThemeKnobs,
+  themePresets,
+  type ThemeKnobs,
+} from './buildTheme.js';
 
 export interface PreviewAppHandle {
   dispose(): void;
@@ -53,6 +59,9 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
   // ── Live knob state. Cloned from DEFAULT_CONFIG via defaultKnobs(). ──
   let knobs: PreviewKnobs = defaultKnobs();
   let config: SimConfig = buildConfig(knobs);
+  // ── Live THEME knob state (purely cosmetic; never touches the sim). Cloned
+  //    from DEFAULT_THEME via defaultThemeKnobs(); fed to the REAL renderer. ──
+  let themeKnobs: ThemeKnobs = defaultThemeKnobs();
 
   // ── DOM scaffold ──
   const stage = el('div', 'pv-stage');
@@ -92,16 +101,31 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
   let lastMs = performance.now();
   let rafId = 0;
 
-  /** Rebuild config from knobs and restart the run (keeps the harness honest:
-   *  changing a knob rebuilds the REAL config and re-seeds the REAL sim). */
-  function applyKnobs(): void {
-    config = buildConfig(knobs);
+  /** (Re)create the REAL renderer over the current canvas/ctx with the current
+   *  config + theme. One place so config- and theme-knob changes share it
+   *  (production-truthful: always the real `createRenderer`, never a fork). */
+  function makeRenderer(): void {
     renderer = createRenderer(ctx!, {
       width: canvas.width,
       height: canvas.height,
       config,
+      theme: buildTheme(themeKnobs),
     });
+  }
+
+  /** Rebuild config from knobs and restart the run (keeps the harness honest:
+   *  changing a knob rebuilds the REAL config and re-seeds the REAL sim). */
+  function applyKnobs(): void {
+    config = buildConfig(knobs);
+    makeRenderer();
     restart();
+  }
+
+  /** Apply a theme-knob change: rebuild the REAL theme and recreate the renderer
+   *  over the SAME canvas/ctx — the sim is untouched (theme is purely visual),
+   *  so the live run keeps going and the new look shows on the next frame. */
+  function applyTheme(): void {
+    makeRenderer();
   }
 
   function restart(): void {
@@ -265,9 +289,11 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
     detRow.appendChild(
       btn('Reset knobs', 'reset', () => {
         knobs = defaultKnobs();
+        themeKnobs = defaultThemeKnobs();
         seedInput.value = String(knobs.seed);
         rebuildPanel();
         applyKnobs();
+        applyTheme();
       }),
     );
     det.appendChild(detRow);
@@ -310,19 +336,119 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
     audioGroup.appendChild(audioRow);
     panel.appendChild(audioGroup);
 
-    // §6 boundary — honest "not yet wired" note. The renderer has no theme/art
-    // seam, so parallax/art/level-art knobs would require forking the renderer.
-    // We surface them as not-wired rather than faking a divergent preview render.
+    // ── Theme / Art (cosmetic; recreates the REAL renderer with a new theme). ──
+    buildThemeSection();
+
+    // §6 boundary — what the harness still CANNOT tune (kept honest). The art
+    // boundary is now CLOSED: palette / parallax / ground knobs above drive the
+    // real renderer's RenderTheme. What remains stubbed is the AUDIO transport
+    // (WebAudio synth, not real asset mixing) and anything server-authoritative.
     const boundary = el('div', 'pv-note');
     boundary.dataset.testid = 'preview-boundary';
     boundary.innerHTML =
-      '<b>Not yet wired (needs renderer theme seam).</b> ' +
-      'Parallax / palette / level-art knobs are intentionally absent: the ' +
-      'renderer (@skate/render-canvas) does not accept theme or art params yet. ' +
-      'Adding them here would require a renderer config seam — forking a ' +
-      'divergent "preview renderer" would break production-truthfulness (doc §6). ' +
-      'Surfaced honestly instead of faked.';
+      '<b>Boundary (doc §6).</b> Theme / art is now wired — the palette, ' +
+      'parallax and ground knobs above build a real <code>RenderTheme</code> and ' +
+      'recreate the actual <code>@skate/render-canvas</code> renderer, so the ' +
+      'look you see is what ships. Still NOT verifiable here: audio is a ' +
+      'dev-only WebAudio synth (not the shipped asset mix), and ' +
+      'server-authoritative scoring / persistence are stubbed by construction. ' +
+      'A green harness is not a green system.';
     panel.appendChild(boundary);
+  }
+
+  /** Build the Theme / Art controls: palette color pickers + parallax/layout
+   *  sliders + presets. Every control mutates `themeKnobs` (a spread/override of
+   *  the default theme) and calls `applyTheme()` to recreate the renderer live. */
+  function buildThemeSection(): void {
+    const theme = group('Theme / Art');
+
+    // Presets — each loads a full ThemeKnobs derived from DEFAULT_THEME.
+    const presetRow = el('div', 'pv-row');
+    for (const p of themePresets()) {
+      const b = btn(p.label, `preset-${p.id}`, () => {
+        themeKnobs = p.knobs;
+        applyTheme();
+        rebuildPanel();
+      });
+      b.dataset.preset = p.id;
+      presetRow.appendChild(b);
+    }
+    theme.appendChild(presetRow);
+
+    // Palette colors. id → label; getter/setter over `themeKnobs`.
+    const colors: ReadonlyArray<[keyof ThemeKnobs, string]> = [
+      ['skyTop', 'sky top'],
+      ['skyBottom', 'sky bottom'],
+      ['hillsFar', 'hills far'],
+      ['hillsNear', 'hills near'],
+      ['buildings', 'buildings'],
+      ['ground', 'ground'],
+      ['groundEdge', 'ground edge'],
+      ['board', 'board'],
+      ['riderAccent', 'rider accent'],
+      ['obstacle', 'obstacle'],
+      ['cone', 'cone'],
+    ];
+    for (const [key, label] of colors) {
+      colorKnob(theme, key, label);
+    }
+
+    // Parallax + layout sliders.
+    const sliders: ReadonlyArray<
+      [keyof ThemeKnobs, string, number, number, number]
+    > = [
+      ['farFactor', 'parallax far factor', 0, 0.5, 0.005],
+      ['nearFactor', 'parallax near factor', 0, 0.5, 0.005],
+      ['buildingFactor', 'parallax building factor', 0, 0.5, 0.005],
+      ['farAmplitude', 'far amplitude', 0, 1, 0.01],
+      ['nearAmplitude', 'near amplitude', 0, 1, 0.01],
+      ['groundLineRatio', 'ground line ratio', 0.3, 0.95, 0.01],
+      ['groundStripeSpan', 'ground stripe span', 8, 200, 1],
+    ];
+    for (const [key, label, min, max, stepSize] of sliders) {
+      rangeKnob(
+        theme,
+        `theme-${key}`,
+        label,
+        min,
+        max,
+        stepSize,
+        () => themeKnobs[key] as number,
+        (v) => {
+          themeKnobs = { ...themeKnobs, [key]: v };
+        },
+        applyTheme,
+      );
+    }
+
+    panel.appendChild(theme);
+  }
+
+  /** A labelled `<input type="color">` bound to a `themeKnobs` palette entry.
+   *  Stable selector: `[data-knob="theme-<key>"]`. */
+  function colorKnob(
+    parent: HTMLElement,
+    key: keyof ThemeKnobs,
+    label: string,
+  ): void {
+    const wrap = el('div', 'pv-knob');
+    const lab = document.createElement('label');
+    lab.htmlFor = `pv-theme-${String(key)}`;
+    lab.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.id = `pv-theme-${String(key)}`;
+    input.dataset.knob = `theme-${String(key)}`;
+    input.dataset.testid = `knob-theme-${String(key)}`;
+    input.value = String(themeKnobs[key]);
+    input.addEventListener('input', () => {
+      themeKnobs = { ...themeKnobs, [key]: input.value };
+      applyTheme();
+    });
+    wrap.appendChild(lab);
+    wrap.appendChild(document.createElement('span'));
+    wrap.appendChild(input);
+    parent.appendChild(wrap);
   }
 
   /** Re-render the whole panel (used after a knob reset). */
@@ -370,7 +496,9 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
     return li;
   }
 
-  /** A labelled range slider with a live numeric readout. Applies on input. */
+  /** A labelled range slider with a live numeric readout. Applies on input.
+   *  `apply` defaults to `applyKnobs` (sim knobs); theme knobs pass `applyTheme`
+   *  so a colour/parallax change recreates the renderer without re-seeding. */
   function rangeKnob(
     parent: HTMLElement,
     id: string,
@@ -380,6 +508,7 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
     stepSize: number,
     get: () => number,
     set: (v: number) => void,
+    apply: () => void = applyKnobs,
   ): void {
     const wrap = el('div', 'pv-knob');
     const lab = document.createElement('label');
@@ -391,6 +520,7 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
     range.type = 'range';
     range.id = `pv-${id}`;
     range.dataset.testid = `knob-${id}`;
+    range.dataset.knob = id;
     range.min = String(min);
     range.max = String(max);
     range.step = String(stepSize);
@@ -399,7 +529,7 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
       const v = Number(range.value);
       set(v);
       val.textContent = fmt(v);
-      applyKnobs();
+      apply();
     });
     wrap.appendChild(lab);
     wrap.appendChild(val);
@@ -418,11 +548,7 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
   }
 
   sizeCanvas();
-  renderer = createRenderer(ctx, {
-    width: canvas.width,
-    height: canvas.height,
-    config,
-  });
+  makeRenderer();
   window.addEventListener('resize', onResize);
   rafId = requestAnimationFrame(frame);
 

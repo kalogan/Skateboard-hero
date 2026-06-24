@@ -9,10 +9,10 @@ Director drains this on their schedule; none of it blocks the gate.
   single-const tune. Double-tap window `DOUBLE_TAP_MS=300`.
 - **Tre Flip juice:** the 500pt showpiece trick currently reuses the generic
   flip+spin visual; candidate for a unique trail/flash.
-- **Renderer theme seam (unblocks preview art knobs):** the renderer takes no
-  theme/art params, so `/preview` can't tune parallax/palette/level-art yet
-  (surfaced honestly in the harness, not faked). A future slice adds a theme
-  config to `@skate/render-canvas`, then the preview exposes those knobs.
+- **Art direction (now tunable in `/preview`):** `DEFAULT_THEME` in
+  `packages/render-canvas/src/theme.ts` is placeholder — palette + parallax are
+  yours to tune live in the harness (Default/Night/Sunset presets seed it). When
+  you settle on a look, bake the chosen values into `DEFAULT_THEME`.
 - **Sound design (placeholder):** ollie/land/trick/bail SFX frequencies+envelopes
   and the ambient bed (drone pitches, noise character, fades) are first-pass
   synth guesses. Per-trick audio is a pitch-hash, not a curated mapping.
@@ -30,4 +30,5 @@ Director drains this on their schedule; none of it blocks the gate.
   look/feel (board style, palette, parallax mood) is a Director call.
 
 ## Resolved
-- _(none yet)_
+- **Renderer theme seam** — `@skate/render-canvas` now takes a `RenderTheme`
+  (palette + parallax + ground); `/preview` exposes live art knobs + presets.

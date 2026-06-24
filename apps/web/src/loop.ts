@@ -8,7 +8,7 @@
  * Keeping it pure makes the integration testable without a browser.
  */
 
-import { step, type SimConfig, type WorldState } from '@skate/core';
+import { step, type InputIntent, type SimConfig, type WorldState } from '@skate/core';
 
 /** Clamp a single frame's delta so a tab-switch / GC pause can't spiral. */
 const MAX_FRAME_MS = 250;
@@ -21,23 +21,25 @@ export interface AdvanceResult {
 
 /**
  * Fold `elapsedMs` of real time (plus any carried remainder) into fixed steps.
- * `ollie` is applied to the FIRST sub-step only, so one tap = one ollie intent
- * regardless of how many steps a frame runs.
+ * `intent` (the ollie flag + accompanying trick gesture) is applied to the FIRST
+ * sub-step only, so one tap = one ollie/gesture intent regardless of how many
+ * steps a frame runs; subsequent sub-steps get a neutral intent.
  */
 export function advance(
   world: WorldState,
   config: SimConfig,
   elapsedMs: number,
   carryMs: number,
-  ollie: boolean,
+  intent: InputIntent,
 ): AdvanceResult {
   const stepMs = config.dt * 1000;
   let acc = carryMs + Math.min(Math.max(elapsedMs, 0), MAX_FRAME_MS);
   let w = world;
-  let pendingOllie = ollie;
+  let pending: InputIntent = intent;
+  const neutral: InputIntent = { ollie: false };
   while (acc >= stepMs) {
-    w = step(w, { ollie: pendingOllie }, config);
-    pendingOllie = false;
+    w = step(w, pending, config);
+    pending = neutral;
     acc -= stepMs;
   }
   return { world: w, carryMs: acc };

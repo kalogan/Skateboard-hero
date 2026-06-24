@@ -28,16 +28,22 @@
  *  - `input.ollie` while grounded imparts `config.ollieImpulse` upward velocity.
  *    Gravity integrates the arc; the board lands when `y` returns to 0 (clamped).
  *  - Ollie is IGNORED mid-air (no double-jump) — by design.
+ *  - On each ollie the sim deterministically PICKS A NAMED TRICK from the
+ *    catalog (`config.tricks`, weighted via `world.rng`) and stores it on
+ *    `board.trick`. The pick happens once, on take-off — never re-rolled mid-air.
  *  - A "trick" is one clean airborne hop that lands without bailing: each time
- *    the board lands from the air it scores `config.trickBonus` and increments
- *    `tricks`. A cosmetic `rotation` spins while airborne and resets on land.
- *  - score = floor(distance) + tricks * trickBonus.
+ *    the board lands from the air it awards THAT trick's `points` (added to
+ *    `trickScore`) and increments `tricks`. If the landing frame bails, no points
+ *    are awarded. `board.trick` clears to `null` on land. A cosmetic `rotation`
+ *    spins while airborne and resets on land.
+ *  - score = floor(distance) + trickScore (sum of landed trick points).
  */
 
 import type {
   InputIntent,
   Obstacle,
   SimConfig,
+  TrickId,
   WorldState,
 } from './types.js';
 import { seedRng, nextRange, nextWeightedIndex } from './rng.js';
@@ -60,11 +66,13 @@ export function createWorld(config: SimConfig, seed: number): WorldState {
     speed: config.baseSpeed,
     score: 0,
     tricks: 0,
+    trickScore: 0,
     board: {
       y: config.groundY,
       vy: 0,
       grounded: true,
       rotation: 0,
+      trick: null,
     },
     obstacles: [],
     rng: seedRng(seed),
@@ -120,35 +128,44 @@ export function step(
   const distance = world.distance + advance;
   const time = world.time + dt;
 
-  // ── Board physics (ollie arc) ──
-  let { y, vy, grounded, rotation } = world.board;
+  // RNG threaded sequentially through the whole step: trick pick (on take-off)
+  // first, then the spawner's weighted-pick + gap rolls.
+  let rng = world.rng;
 
-  // Ollie only fires from the ground (no double-jump).
+  // ── Board physics (ollie arc) ──
+  let { y, vy, grounded, rotation, trick } = world.board;
+
+  // Ollie only fires from the ground (no double-jump). On take-off, pick the
+  // trick for this hop ONCE — deterministically, weighted by the catalog.
   if (input.ollie && grounded) {
     vy = config.ollieImpulse;
     grounded = false;
+    const trickWeights = config.tricks.map((t) => t.weight);
+    const [trickIdx, rngAfterTrick] = nextWeightedIndex(rng, trickWeights);
+    rng = rngAfterTrick;
+    trick = config.tricks[trickIdx]!.id;
   }
 
-  let landedTrick = false;
+  let landedTrickId: TrickId | null = null;
   if (!grounded) {
     // Integrate the arc; gravity is negative (pulls toward ground).
     vy = vy + config.gravity * dt;
     y = y + vy * dt;
     rotation = rotation + SPIN_PER_SECOND * dt;
     if (y <= config.groundY) {
-      // Land: clamp to ground, zero vertical state, reset spin, score a trick.
+      // Land: clamp to ground, zero vertical state, reset spin, score the trick.
       y = config.groundY;
       vy = 0;
       grounded = true;
       rotation = 0;
-      landedTrick = true;
+      landedTrickId = trick;
+      trick = null;
     }
   }
 
-  const board = { y, vy, grounded, rotation };
+  const board = { y, vy, grounded, rotation, trick };
 
   // ── Spawner (seeded, weighted) ──
-  let rng = world.rng;
   let nextSpawnIn = world.nextSpawnIn - advance;
   const spawned: Obstacle[] = [];
   // `while` rather than `if` so a large `advance` (or tiny gap) can never starve
@@ -198,9 +215,16 @@ export function step(
   for (const obs of world.obstacles) moveAndCollect(obs);
   for (const obs of spawned) moveAndCollect(obs);
 
-  // ── Scoring ──
-  const tricks = world.tricks + (landedTrick && !bailed ? 1 : 0);
-  const score = Math.floor(distance) + tricks * config.trickBonus;
+  // ── Scoring (per-trick points) ──
+  // A clean landing this frame awards the landed trick's catalog points; if the
+  // SAME frame bails, suppress the award. Distance always scores.
+  const landedCleanly = landedTrickId !== null && !bailed;
+  const landedPoints = landedCleanly
+    ? (config.tricks.find((t) => t.id === landedTrickId)?.points ?? 0)
+    : 0;
+  const tricks = world.tricks + (landedCleanly ? 1 : 0);
+  const trickScore = world.trickScore + landedPoints;
+  const score = Math.floor(distance) + trickScore;
 
   return {
     status: bailed ? 'bailed' : status,
@@ -209,6 +233,7 @@ export function step(
     speed,
     score,
     tricks,
+    trickScore,
     board,
     obstacles,
     rng,

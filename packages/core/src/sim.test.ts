@@ -25,7 +25,8 @@ describe('createWorld', () => {
     expect(w.score).toBe(0);
     expect(w.tricks).toBe(0);
     expect(w.speed).toBe(DEFAULT_CONFIG.baseSpeed);
-    expect(w.board).toEqual({ y: DEFAULT_CONFIG.groundY, vy: 0, grounded: true, rotation: 0 });
+    expect(w.board).toEqual({ y: DEFAULT_CONFIG.groundY, vy: 0, grounded: true, rotation: 0, trick: null });
+    expect(w.trickScore).toBe(0);
     expect(w.obstacles).toEqual([]);
   });
 });
@@ -114,9 +115,13 @@ describe('board physics (ollie arc)', () => {
 });
 
 describe('scoring + tricks', () => {
-  it('awards a trick + bonus on a clean ollie-and-land', () => {
+  it('selects a named trick on take-off and awards its points on a clean land', () => {
     let w = createWorld(DEFAULT_CONFIG, 3);
     w = step(w, OLLIE, DEFAULT_CONFIG);
+    // A trick is chosen on take-off and exists in the catalog.
+    expect(w.board.trick).not.toBeNull();
+    const chosen = DEFAULT_CONFIG.tricks.find((t) => t.id === w.board.trick);
+    expect(chosen).toBeDefined();
     let landed = false;
     for (let i = 0; i < 120 && !landed; i++) {
       const before = w.tricks;
@@ -124,8 +129,10 @@ describe('scoring + tricks', () => {
       if (w.tricks > before) landed = true;
     }
     expect(w.tricks).toBe(1);
-    // score = floor(distance) + tricks*bonus
-    expect(w.score).toBe(Math.floor(w.distance) + DEFAULT_CONFIG.trickBonus);
+    expect(w.board.trick).toBeNull(); // cleared on land
+    expect(w.trickScore).toBe(chosen!.points);
+    // score = floor(distance) + sum of landed trick points
+    expect(w.score).toBe(Math.floor(w.distance) + chosen!.points);
   });
 
   it('score = floor(distance) when no tricks landed', () => {
@@ -133,17 +140,17 @@ describe('scoring + tricks', () => {
     // A handful of steps, never ollie, before any collision.
     w = run(w, DEFAULT_CONFIG, Array(5).fill(NO_OLLIE));
     expect(w.status).toBe('rolling');
+    expect(w.trickScore).toBe(0);
     expect(w.score).toBe(Math.floor(w.distance));
   });
 
-  it('does not award a trick if the landing frame bails', () => {
-    // Hard to engineer deterministically; assert the invariant directly via a
-    // run where any bail leaves tricks consistent with score.
+  it('keeps score = floor(distance) + trickScore across a long mixed run', () => {
+    // Invariant holds whether or not a landing frame bails.
     let w = createWorld(DEFAULT_CONFIG, 11);
     for (let i = 0; i < 4000 && w.status !== 'bailed'; i++) {
       w = step(w, i % 30 === 0 ? OLLIE : NO_OLLIE, DEFAULT_CONFIG);
     }
-    expect(w.score).toBe(Math.floor(w.distance) + w.tricks * DEFAULT_CONFIG.trickBonus);
+    expect(w.score).toBe(Math.floor(w.distance) + w.trickScore);
   });
 });
 
@@ -202,7 +209,7 @@ describe('spawner', () => {
     const passed: WorldState = {
       ...base,
       status: 'rolling',
-      board: { y: 200, vy: 0, grounded: false, rotation: 0 }, // airborne, no collision
+      board: { y: 200, vy: 0, grounded: false, rotation: 0, trick: 'ollie' }, // airborne, no collision
       obstacles: [
         {
           kind: 'cone',
@@ -224,13 +231,84 @@ describe('spawner', () => {
       ...base,
       status: 'rolling',
       nextSpawnIn: 9999, // keep the spawner quiet for this isolated assertion
-      board: { y: 200, vy: 0, grounded: false, rotation: 0 },
+      board: { y: 200, vy: 0, grounded: false, rotation: 0, trick: 'ollie' },
       obstacles: [
         { kind: 'cone', x: -100, width: 14, height: 18, cleared: true },
       ],
     };
     const next = step(offscreen, NO_OLLIE, DEFAULT_CONFIG);
     expect(next.obstacles.length).toBe(0);
+  });
+});
+
+describe('trick selection (deterministic, per-trick scoring)', () => {
+  const VALID_IDS = new Set(DEFAULT_CONFIG.tricks.map((t) => t.id));
+
+  it('picks a trick deterministically from a seed (same seed → same trick)', () => {
+    const a = step(createWorld(DEFAULT_CONFIG, 42), OLLIE, DEFAULT_CONFIG);
+    const b = step(createWorld(DEFAULT_CONFIG, 42), OLLIE, DEFAULT_CONFIG);
+    expect(a.board.trick).toBe(b.board.trick);
+    expect(VALID_IDS.has(a.board.trick!)).toBe(true);
+  });
+
+  it('different seeds can select different tricks (RNG actually drives it)', () => {
+    const picks = new Set<string>();
+    for (let seed = 0; seed < 50; seed++) {
+      const w = step(createWorld(DEFAULT_CONFIG, seed), OLLIE, DEFAULT_CONFIG);
+      picks.add(w.board.trick!);
+    }
+    expect(picks.size).toBeGreaterThan(1);
+  });
+
+  it('does not re-roll the trick mid-air (no double-trick)', () => {
+    let w = step(createWorld(DEFAULT_CONFIG, 7), OLLIE, DEFAULT_CONFIG);
+    const chosen = w.board.trick;
+    expect(chosen).not.toBeNull();
+    // Hammer ollie every airborne frame; the trick must stay fixed until landing.
+    for (let i = 0; i < 200; i++) {
+      w = step(w, OLLIE, DEFAULT_CONFIG);
+      if (w.board.grounded) break;
+      expect(w.board.trick).toBe(chosen);
+    }
+    // After landing it clears; tricks incremented exactly once for this hop.
+    expect(w.board.grounded).toBe(true);
+    expect(w.board.trick).toBeNull();
+    expect(w.tricks).toBe(1);
+  });
+
+  it('awards exactly the chosen trick’s catalog points on a clean land', () => {
+    // Drive several independent hops and verify each adds its trick’s points.
+    for (const seed of [1, 13, 99, 256, 1000]) {
+      let w = step(createWorld(DEFAULT_CONFIG, seed), OLLIE, DEFAULT_CONFIG);
+      const def = DEFAULT_CONFIG.tricks.find((t) => t.id === w.board.trick)!;
+      const beforeTrickScore = w.trickScore;
+      for (let i = 0; i < 200 && !w.board.grounded; i++) {
+        w = step(w, NO_OLLIE, DEFAULT_CONFIG);
+      }
+      if (w.status === 'bailed') continue; // landing bailed → no award (tested elsewhere)
+      expect(w.trickScore - beforeTrickScore).toBe(def.points);
+    }
+  });
+
+  it('suppresses points + trick count if the landing frame bails', () => {
+    // Construct a world that will land directly onto a grounded-height obstacle
+    // this very frame: airborne, about to touch down, obstacle overlapping low.
+    const base = createWorld(DEFAULT_CONFIG, 8);
+    const aboutToLandIntoIt: WorldState = {
+      ...base,
+      status: 'rolling',
+      // y small + downward vy so the arc clamps to ground this step.
+      board: { y: 1, vy: -1000, grounded: false, rotation: 0.2, trick: 'shuv360' },
+      obstacles: [
+        // A grounded skater would collide (board.y < height once landed at y=0).
+        { kind: 'cone', x: DEFAULT_CONFIG.boardX + 2, width: 14, height: 18, cleared: false },
+      ],
+    };
+    const next = step(aboutToLandIntoIt, NO_OLLIE, DEFAULT_CONFIG);
+    expect(next.status).toBe('bailed');
+    expect(next.board.grounded).toBe(true); // it did land...
+    expect(next.tricks).toBe(0); // ...but the bail suppressed the award
+    expect(next.trickScore).toBe(0);
   });
 });
 
@@ -248,7 +326,7 @@ describe('collision / bail', () => {
     const airborne: WorldState = {
       ...base,
       status: 'rolling',
-      board: { y: 200, vy: 0, grounded: false, rotation: 0 },
+      board: { y: 200, vy: 0, grounded: false, rotation: 0, trick: 'ollie' },
       obstacles: [
         // Tallest catalog obstacle, sitting right on the board's x-span.
         { kind: 'bench', x: DEFAULT_CONFIG.boardX, width: 48, height: 30, cleared: false },
@@ -263,7 +341,7 @@ describe('collision / bail', () => {
     const grounded: WorldState = {
       ...base,
       status: 'rolling',
-      board: { y: 0, vy: 0, grounded: true, rotation: 0 },
+      board: { y: 0, vy: 0, grounded: true, rotation: 0, trick: null },
       obstacles: [
         { kind: 'cone', x: DEFAULT_CONFIG.boardX + 2, width: 14, height: 18, cleared: false },
       ],

@@ -39,6 +39,9 @@ export const DEFAULT_CONFIG: SimConfig = {
   dt: 1 / 60,
   gravity: -2000,
   ollieImpulse: 720,
+  // Variable jump: hold up to ~0.22s of reduced (38%) gravity while rising.
+  jumpHoldMaxTime: 0.22,
+  jumpHoldGravityScale: 0.38,
   baseSpeed: 320,
   speedRamp: 0.02,
   maxSpeed: 760,

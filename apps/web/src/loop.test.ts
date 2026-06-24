@@ -65,6 +65,47 @@ describe('advance (fixed-timestep accumulator)', () => {
     expect(r.world.board.trick).toBe('ollie');
   });
 
+  it('threads jumpHeld to every sub-step (held floats higher than a quick hop)', () => {
+    // The variable jump only reaches past the first sub-step if `jumpHeld` is
+    // fed to each one. Take off (ollie on the first step) with the button held
+    // vs released, then integrate several more rising sub-steps in the SAME
+    // frame: held = reduced gravity each step → a higher upward velocity.
+    const grounded = createWorld(config, 3);
+    const frameMs = stepMs * 4;
+    const held = advance(grounded, config, frameMs, 0, {
+      ollie: true,
+      jumpHeld: true,
+    }).world;
+    const quick = advance(grounded, config, frameMs, 0, {
+      ollie: true,
+      jumpHeld: false,
+    }).world;
+    expect(held.board.grounded).toBe(false);
+    expect(quick.board.grounded).toBe(false);
+    // Both still rising; the held arc lost less velocity to gravity.
+    expect(held.board.vy).toBeGreaterThan(quick.board.vy);
+  });
+
+  it('keeps jumpHeld continuous: holding across a later frame still floats', () => {
+    // jumpHeld is NOT an edge — a frame with ollie:false but jumpHeld:true must
+    // still reduce gravity on the (still-rising) board. Take off on frame 1 with
+    // a single sub-step, then a second frame holds without re-popping.
+    const grounded = createWorld(config, 3);
+    const afterTakeoff = advance(grounded, config, stepMs, 0, {
+      ollie: true,
+      jumpHeld: true,
+    }).world;
+    const stillHeld = advance(afterTakeoff, config, stepMs * 2, 0, {
+      ollie: false,
+      jumpHeld: true,
+    }).world;
+    const released = advance(afterTakeoff, config, stepMs * 2, 0, {
+      ollie: false,
+      jumpHeld: false,
+    }).world;
+    expect(stillHeld.board.vy).toBeGreaterThan(released.board.vy);
+  });
+
   it('applies the intent to the first sub-step only (one pop per frame)', () => {
     // The intent (ollie + gesture) must flow ONLY through the first sub-step;
     // later sub-steps in the same frame get a neutral intent. A single-step

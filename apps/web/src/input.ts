@@ -1,23 +1,25 @@
 /**
- * Input layer — one button, enriched with a trick gesture.
+ * Input layer — one button, modelled as PRESS / HOLD / RELEASE so the core's
+ * variable jump works:
  *
- * A pointer press (touch or mouse) or Space is a "tap": the app decides what a
- * tap MEANS by phase (start the run, ollie, or retry). On top of that we report
- * a `TrickGesture` so the core can pick a trick:
+ *  - **Press** (pointerdown / Space-keydown, not auto-repeat): the takeoff edge
+ *    AND the start of a hold. The app decides what a press MEANS by phase (start
+ *    the run, ollie, or retry).
+ *  - **Hold**: while the pointer/Space is down, `held()` reports `true` so the
+ *    core can sustain a higher jump (hold-to-jump-higher).
+ *  - **Release** (pointerup / Space-keyup): ends the hold and resolves the trick
+ *    `TrickGesture` from the press→release movement:
+ *      - **Flick** (touch swipe / mouse drag): a press that travels past a small
+ *        distance threshold within a short time window. The dominant axis maps to
+ *        `'up' | 'down' | 'left' | 'right'`. Little movement is a plain `'tap'`.
+ *      - **Keyboard**: the flick direction is whichever Arrow/WASD key is held at
+ *        press (hold A/← + Space → flick left). Arrows/WASD alone never jump —
+ *        only Space does.
+ *      - **Double-tap**: two presses within `DOUBLE_TAP_MS` → `'doubleTap'` (a
+ *        mid-air trick; the core only applies it when airborne).
  *
- *  - **Flick** (touch swipe / mouse drag): a press that travels past a small
- *    distance threshold within a short time window. The dominant axis maps to
- *    `'up' | 'down' | 'left' | 'right'`. A press with little movement is a plain
- *    tap (`'tap'`).
- *  - **Keyboard**: Space pops/ollies; the flick direction is whichever
- *    Arrow/WASD key is held at that moment (hold A/← + Space → flick left).
- *    Arrows/WASD alone never jump — only Space does.
- *  - **Double-tap**: two taps within `DOUBLE_TAP_MS` → `'doubleTap'` (a mid-air
- *    trick; the core only applies it when airborne).
- *
- * This module only normalizes raw events and dedupes, calling `onTap(gesture)`
- * once per discrete press. The classification math lives in pure helpers so it
- * is unit-testable without a DOM.
+ * This module only normalizes raw events and dedupes. The classification math
+ * lives in pure helpers so it is unit-testable without a DOM.
  */
 
 import type { InputIntent } from '@skate/core';
@@ -99,68 +101,110 @@ export function resolveGesture(
   return base;
 }
 
-export function createInput(
-  target: Window,
-  onTap: (gesture: TrickGesture) => void,
-): DisposeInput {
+/** Callbacks for the press/hold/release lifecycle of the one jump button. */
+export interface InputHandlers {
+  /** The takeoff edge: a fresh press (pointerdown / Space-keydown). */
+  onPress(): void;
+  /**
+   * The press ended (pointerup / Space-keyup); `gesture` is the trick resolved
+   * from the press→release movement (or `'doubleTap'` if it followed a press
+   * within `DOUBLE_TAP_MS`).
+   */
+  onRelease(gesture: TrickGesture): void;
+}
+
+/** Handle returned by {@link createInput}. */
+export interface InputHandle {
+  /** Whether the jump button is currently DOWN (continuous hold state). */
+  held(): boolean;
+  /** Detach all listeners. */
+  dispose: DisposeInput;
+}
+
+export function createInput(target: Window, handlers: InputHandlers): InputHandle {
   // Currently-held direction keys, most-recent last (so the freshest wins).
   const heldDirs: TrickGesture[] = [];
   let pointerStart: { x: number; y: number; t: number } | null = null;
-  let lastTapMs: number | null = null;
+  let spaceDown = false;
+  let lastPressMs: number | null = null;
+  // The press that *preceded* the one we're now releasing — used for double-tap.
+  let prevPressMs: number | null = null;
 
   const now = (): number =>
     typeof performance !== 'undefined' ? performance.now() : Date.now();
 
-  const fire = (base: TrickGesture): void => {
-    const t = now();
-    const gesture = resolveGesture(base, lastTapMs, t);
-    lastTapMs = t;
-    onTap(gesture);
+  // A press is the takeoff edge AND the start of a hold; track the timestamp so
+  // the matching release can be upgraded to a double-tap.
+  const press = (): void => {
+    lastPressMs = now();
+    handlers.onPress();
+  };
+
+  // A release ends the hold; resolve the flick → trick (double-tap if the
+  // press it closed followed a previous press within the window).
+  const release = (base: TrickGesture): void => {
+    handlers.onRelease(resolveGesture(base, prevPressMs, lastPressMs ?? now()));
   };
 
   const handlePointerDown = (e: PointerEvent): void => {
     // Primary button / any touch. Prevent the synthetic mouse + scroll/zoom.
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     e.preventDefault();
+    prevPressMs = lastPressMs;
     pointerStart = { x: e.clientX, y: e.clientY, t: now() };
+    press();
   };
 
   const handlePointerUp = (e: PointerEvent): void => {
     if (!pointerStart) return;
     const start = pointerStart;
     pointerStart = null;
-    const base = classifyFlick({
-      dx: e.clientX - start.x,
-      dy: e.clientY - start.y,
-      dtMs: now() - start.t,
-    });
-    fire(base);
+    release(
+      classifyFlick({
+        dx: e.clientX - start.x,
+        dy: e.clientY - start.y,
+        dtMs: now() - start.t,
+      }),
+    );
   };
 
   const handlePointerCancel = (): void => {
+    if (!pointerStart) return;
     pointerStart = null;
+    // Treat an aborted press as a neutral release so the hold doesn't stick.
+    release('tap');
   };
 
   const handleKeyDown = (e: KeyboardEvent): void => {
     const dir = keyDirection(e.code);
     if (dir) {
-      // Track held directions for the next pop; arrows/WASD never jump alone.
+      // Track held directions for the next press; arrows/WASD never jump alone.
       if (!heldDirs.includes(dir)) heldDirs.push(dir);
       return;
     }
-    if (e.repeat) return; // hold = one ollie, not a buzzsaw
+    if (e.repeat) return; // hold = one press edge, not a buzzsaw
     if (e.code === 'Space') {
       e.preventDefault();
-      // Freshest held direction flavours the pop; none → plain tap.
-      fire(heldDirs.length > 0 ? heldDirs[heldDirs.length - 1]! : 'tap');
+      if (spaceDown) return; // already holding (defensive; repeat is handled above)
+      spaceDown = true;
+      prevPressMs = lastPressMs;
+      press();
     }
   };
 
   const handleKeyUp = (e: KeyboardEvent): void => {
     const dir = keyDirection(e.code);
-    if (!dir) return;
-    const i = heldDirs.lastIndexOf(dir);
-    if (i >= 0) heldDirs.splice(i, 1);
+    if (dir) {
+      const i = heldDirs.lastIndexOf(dir);
+      if (i >= 0) heldDirs.splice(i, 1);
+      return;
+    }
+    if (e.code === 'Space') {
+      if (!spaceDown) return;
+      spaceDown = false;
+      // Freshest held direction flavours the trick; none → plain tap.
+      release(heldDirs.length > 0 ? heldDirs[heldDirs.length - 1]! : 'tap');
+    }
   };
 
   target.addEventListener('pointerdown', handlePointerDown, { passive: false });
@@ -169,11 +213,14 @@ export function createInput(
   target.addEventListener('keydown', handleKeyDown);
   target.addEventListener('keyup', handleKeyUp);
 
-  return () => {
-    target.removeEventListener('pointerdown', handlePointerDown);
-    target.removeEventListener('pointerup', handlePointerUp);
-    target.removeEventListener('pointercancel', handlePointerCancel);
-    target.removeEventListener('keydown', handleKeyDown);
-    target.removeEventListener('keyup', handleKeyUp);
+  return {
+    held: () => pointerStart !== null || spaceDown,
+    dispose: () => {
+      target.removeEventListener('pointerdown', handlePointerDown);
+      target.removeEventListener('pointerup', handlePointerUp);
+      target.removeEventListener('pointercancel', handlePointerCancel);
+      target.removeEventListener('keydown', handleKeyDown);
+      target.removeEventListener('keyup', handleKeyUp);
+    },
   };
 }

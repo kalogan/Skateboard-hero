@@ -145,6 +145,15 @@ export interface BoardState {
    * audio read this to draw/announce the trick; scoring reads its `points`.
    */
   readonly trick: TrickId | null;
+  /**
+   * Variable-jump (Super-Mario style) sustain window remaining, in seconds.
+   * Set to `config.jumpHoldMaxTime` on takeoff; while `InputIntent.jumpHeld` is
+   * true and the board is still ascending and this is > 0, gravity is reduced and
+   * this decrements by `dt`. Absent/`undefined` means no float (legacy fixed
+   * hop) — when the hold config is unset, takeoff leaves this absent so worlds
+   * that never use the variable jump are byte-identical to before.
+   */
+  readonly jumpSustain?: number;
 }
 
 /** A single tick's worth of player intent. */
@@ -158,6 +167,15 @@ export interface InputIntent {
    * `'tap'` at takeoff).
    */
   readonly gesture?: TrickGesture | null;
+  /**
+   * Whether the jump button is HELD this tick (continuous, every sub-step).
+   * Distinct from `ollie`, which is the press EDGE that triggers takeoff. While
+   * `jumpHeld` is true and the board is still ascending (and within the config
+   * hold window), gravity is reduced → a higher jump (Super-Mario variable jump).
+   * Absent/false = a quick hop (identical to the legacy fixed-impulse ollie), so
+   * worlds/replays that never set it are unchanged.
+   */
+  readonly jumpHeld?: boolean;
 }
 
 /** The full, serializable world. `step()` maps one of these to the next. */
@@ -202,8 +220,17 @@ export interface SimConfig {
   readonly dt: number;
   /** Downward acceleration, units/sec^2. */
   readonly gravity: number;
-  /** Upward velocity imparted by an ollie, units/sec. */
+  /** Upward velocity imparted by an ollie, units/sec (the minimum / quick-hop jump). */
   readonly ollieImpulse: number;
+  /**
+   * Variable-jump (Super-Mario style) tuning. While `InputIntent.jumpHeld` is
+   * true and the board is still ascending, for up to `jumpHoldMaxTime` seconds
+   * after takeoff, gravity is multiplied by `jumpHoldGravityScale` (0..1) — a
+   * longer hold floats higher, capped. Releasing early (or the cap) restores
+   * full gravity. Both optional; when unset the jump is the fixed quick-hop.
+   */
+  readonly jumpHoldMaxTime?: number;
+  readonly jumpHoldGravityScale?: number;
   /** Forward speed at distance 0, units/sec. */
   readonly baseSpeed: number;
   /** Speed gained per world unit travelled (difficulty ramp). */

@@ -220,6 +220,15 @@ export interface SimConfig {
   /** Spawn spacing window, world units (min/max gap between obstacles). */
   readonly spawnGapMin: number;
   readonly spawnGapMax: number;
+  /**
+   * Lead distance (world units ahead of the board) at which obstacles ENTER.
+   * Decoupled from `spawnGap*` (which now only sets spacing): the app sets this
+   * to just beyond the visible width so props appear at the screen edge, not
+   * mid-screen — full reaction time, independent of speed/zoom. When unset,
+   * obstacles enter at the rolled gap (legacy behavior; keeps the golden fixture
+   * stable since DEFAULT_CONFIG leaves it unset).
+   */
+  readonly spawnAhead?: number;
   /** The authorable obstacle catalog. */
   readonly obstacles: readonly ObstacleDef[];
   /**

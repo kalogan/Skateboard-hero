@@ -224,9 +224,12 @@ export function step(
       config.spawnGapMax,
     );
     rng = rngAfterGap;
-    // Spawn just off the right edge: ahead of the board by the rolled gap, plus
-    // whatever overshoot the step produced (keeps spacing exact across frames).
-    const spawnX = config.boardX + config.boardWidth + gap + Math.max(0, -nextSpawnIn);
+    // Entry point: a fixed lead distance (`spawnAhead`, set by the app to just
+    // off the right edge) when configured, else the rolled gap (legacy). Either
+    // way `nextSpawnIn += gap` below keeps spacing = gap. The overshoot term
+    // keeps spacing exact across frames.
+    const lead = config.spawnAhead ?? gap;
+    const spawnX = config.boardX + config.boardWidth + lead + Math.max(0, -nextSpawnIn);
     spawned.push({
       kind: def.kind,
       x: spawnX,

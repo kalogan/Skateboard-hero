@@ -42,6 +42,12 @@ export interface RendererOptions {
   readonly config: SimConfig;
   /** Cosmetic art knobs (colors, parallax, ground line). Defaults to DEFAULT_THEME. */
   readonly theme?: RenderTheme;
+  /**
+   * Camera zoom for the gameplay layer (board/road/obstacles), around the board
+   * anchor. 1 = no zoom; 1.25 = 25% bigger. The background (sky/parallax) is not
+   * zoomed. Defaults to 1.
+   */
+  readonly scale?: number;
 }
 
 export interface Renderer {
@@ -121,6 +127,7 @@ export function createRenderer(
 ): Renderer {
   const { config } = options;
   const theme = options.theme ?? DEFAULT_THEME;
+  const scale = options.scale ?? 1;
   const isLanes = config.mode === 'lanes';
   let layout = computeLayout(options.width, options.height, theme.groundLineRatio);
   const laneCount = Math.max(1, Math.floor(config.laneCount ?? 3));
@@ -620,12 +627,22 @@ export function createRenderer(
       const { width, height } = layout;
       ctx.clearRect(0, 0, width, height);
 
+      // Background (sky + parallax) is the unscaled backdrop.
       drawBackground(world);
-      drawGround(world);
 
-      // Obstacles behind the board, then the board on top.
+      // Gameplay layer — zoom around the board anchor so the board/road/props
+      // appear `scale`× bigger. Coordinate args to the draw fns are unchanged
+      // (the transform does the zoom), so positions stay easy to reason about.
+      ctx.save();
+      if (scale !== 1) {
+        ctx.translate(config.boardX, layout.groundLineY);
+        ctx.scale(scale, scale);
+        ctx.translate(-config.boardX, -layout.groundLineY);
+      }
+      drawGround(world);
       for (const o of world.obstacles) drawObstacle(o);
       drawBoard(world);
+      ctx.restore();
 
       // Bail: desaturating crash tint over the whole frame (HUD text is Slice 3).
       if (world.status === 'bailed') {

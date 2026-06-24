@@ -17,7 +17,12 @@ import { createGameAudio } from './audio/index.js';
 import { loadLeaderboard, qualifies, submitScore } from './leaderboard.js';
 import { createLeaderboardPanel } from './ui/leaderboard.js';
 
-const config = DEFAULT_CONFIG;
+/** Camera zoom for the gameplay layer (board/road/props 25% bigger). */
+const ZOOM = 1.25;
+
+// Config is rebuilt on resize so `spawnAhead` always lands obstacles just past
+// the visible right edge (see `computeSpawnAhead`).
+let config = DEFAULT_CONFIG;
 
 const root = document.querySelector<HTMLDivElement>('#app');
 if (!root) throw new Error('missing #app mount point');
@@ -28,10 +33,22 @@ root.appendChild(canvas);
 const ctx = canvas.getContext('2d');
 if (!ctx) throw new Error('2d canvas context unavailable');
 
+/**
+ * World-units of lead so obstacles ENTER at the right edge (not mid-screen),
+ * accounting for the renderer's zoom around the board. The renderer maps the
+ * right edge to world-x = boardX + (width - boardX)/ZOOM; spawn a bit past it.
+ */
+function computeSpawnAhead(): number {
+  const edgeWorldX = DEFAULT_CONFIG.boardX + (canvas.width - DEFAULT_CONFIG.boardX) / ZOOM;
+  const margin = DEFAULT_CONFIG.boardWidth * 2;
+  return Math.max(edgeWorldX - (DEFAULT_CONFIG.boardX + DEFAULT_CONFIG.boardWidth) + margin, 0);
+}
+
 function fit(): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.floor(window.innerWidth * dpr);
   canvas.height = Math.floor(window.innerHeight * dpr);
+  config = { ...DEFAULT_CONFIG, spawnAhead: computeSpawnAhead() };
 }
 fit();
 
@@ -39,6 +56,7 @@ const renderer = createRenderer(ctx, {
   width: canvas.width,
   height: canvas.height,
   config,
+  scale: ZOOM,
 });
 
 const hud = createHud(root);

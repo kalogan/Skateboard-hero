@@ -58,7 +58,14 @@ const CORE_FORBIDDEN_IMPORTS = {
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/*.config.*', 'coverage/**'],
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/*.config.*',
+      'coverage/**',
+      // Optional Architect runtime-smoke tool (Node + Playwright), not shipped.
+      'scripts/smoke.mjs',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

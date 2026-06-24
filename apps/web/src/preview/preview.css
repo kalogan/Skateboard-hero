@@ -178,3 +178,70 @@ input[type='number'] {
   border-radius: 4px;
   padding: 3px 6px;
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Mobile / narrow viewports. The desktop layout is a fixed `1fr 360px` grid,
+ * which squishes the canvas to nothing on a phone. Below 720px we stack: the
+ * stage becomes a sticky preview pinned to the top (so the board stays in view
+ * while you scroll the controls), and the panel flows beneath with the page
+ * scrolling. Controls get larger touch targets.
+ * ────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  #preview-root {
+    display: block; /* override the desktop grid → normal page flow + scroll */
+    height: auto;
+    padding: 8px;
+    touch-action: manipulation; /* no double-tap-zoom delay on the controls */
+  }
+
+  .pv-stage {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    height: 42vh;
+    min-height: 190px;
+    margin-bottom: 10px;
+    padding-top: 8px;
+    background: #0c0c14;
+    border-bottom: 1px solid #24243a;
+  }
+
+  .pv-panel {
+    overflow: visible; /* the page scrolls, not the panel */
+    padding-right: 0;
+  }
+
+  .pv-readout {
+    font-size: 13px;
+    gap: 8px 12px;
+  }
+
+  .pv-knob {
+    font-size: 13px;
+  }
+
+  /* Bigger, thumb-friendly sliders + inputs + buttons. */
+  .pv-knob input[type='range'] {
+    height: 30px;
+  }
+  .pv-knob input[type='number'] {
+    min-height: 36px;
+    font-size: 16px; /* >=16px avoids iOS focus-zoom */
+  }
+  input[type='color'] {
+    min-height: 36px;
+    min-width: 44px;
+  }
+  button.pv-btn {
+    min-height: 40px;
+    padding: 9px 14px;
+    font-size: 13px;
+  }
+}
+
+/* Very short viewports (landscape phones): give the stage more height. */
+@media (max-width: 720px) and (max-height: 520px) {
+  .pv-stage {
+    height: 60vh;
+  }
+}

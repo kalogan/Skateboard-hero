@@ -43,9 +43,10 @@ export interface RendererOptions {
   /** Cosmetic art knobs (colors, parallax, ground line). Defaults to DEFAULT_THEME. */
   readonly theme?: RenderTheme;
   /**
-   * Camera zoom for the gameplay layer (board/road/obstacles), around the board
-   * anchor. 1 = no zoom; 1.25 = 25% bigger. The background (sky/parallax) is not
-   * zoomed. Defaults to 1.
+   * Camera zoom for the whole scene (sky/parallax background AND
+   * board/road/obstacles), around the board anchor. 1 = no zoom; 1.5 = 50%
+   * bigger. Because `scale > 1` magnifies, the content over-covers the canvas so
+   * no edge gaps appear. Defaults to 1.
    */
   readonly scale?: number;
 }
@@ -627,18 +628,19 @@ export function createRenderer(
       const { width, height } = layout;
       ctx.clearRect(0, 0, width, height);
 
-      // Background (sky + parallax) is the unscaled backdrop.
-      drawBackground(world);
-
-      // Gameplay layer — zoom around the board anchor so the board/road/props
-      // appear `scale`× bigger. Coordinate args to the draw fns are unchanged
-      // (the transform does the zoom), so positions stay easy to reason about.
+      // Whole scene (background + gameplay) is zoomed around the board anchor so
+      // sky/parallax, road, props, and the board all read `scale`× bigger.
+      // Coordinate args to the draw fns are unchanged (the transform does the
+      // zoom), so positions stay easy to reason about. Because `scale > 1`
+      // magnifies outward from the anchor, the sky/ground fills over-cover the
+      // canvas — no edge gaps appear.
       ctx.save();
       if (scale !== 1) {
         ctx.translate(config.boardX, layout.groundLineY);
         ctx.scale(scale, scale);
         ctx.translate(-config.boardX, -layout.groundLineY);
       }
+      drawBackground(world);
       drawGround(world);
       for (const o of world.obstacles) drawObstacle(o);
       drawBoard(world);

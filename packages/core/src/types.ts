@@ -38,6 +38,14 @@ export type ObstacleKind = 'cone' | 'rail' | 'crack' | 'bench';
 export type TrickFlipAxis = 'none' | 'kick' | 'shuv';
 
 /**
+ * The input gesture that selects a trick. `'tap'` is the plain ollie; the four
+ * directions are takeoff flicks (touch swipe / mouse drag / arrow+WASD);
+ * `'doubleTap'` is a second tap while already airborne. Each gesture maps to
+ * exactly one trick in the catalog (enforced by `lint:content`).
+ */
+export type TrickGesture = 'tap' | 'up' | 'down' | 'left' | 'right' | 'doubleTap';
+
+/**
  * Identifiers for the named tricks. The concrete catalog of `TrickDef`s lives in
  * content (`config.ts`) and is validated by `lint:content`. Kept as a string so
  * content can grow tricks without a type churn, but the default set is enumerated
@@ -69,6 +77,8 @@ export interface TrickDef {
   readonly spinTurns: number;
   /** Sign of the yaw spin direction: +1 or -1. */
   readonly spinDir: 1 | -1;
+  /** The input gesture that performs this trick. Unique across the catalog. */
+  readonly gesture: TrickGesture;
 }
 
 /**
@@ -114,10 +124,17 @@ export interface BoardState {
   readonly trick: TrickId | null;
 }
 
-/** A single tick's worth of player intent. One button → one verb. */
+/** A single tick's worth of player intent. */
 export interface InputIntent {
   /** The player wants to ollie (tap / Space) this tick. */
   readonly ollie: boolean;
+  /**
+   * The gesture accompanying this tick, if any. The app reports the raw gesture
+   * (takeoff flick direction, or a mid-air double-tap); the sim resolves it to a
+   * trick via the catalog. Omitted/`null` means a plain input (treated as
+   * `'tap'` at takeoff).
+   */
+  readonly gesture?: TrickGesture | null;
 }
 
 /** The full, serializable world. `step()` maps one of these to the next. */

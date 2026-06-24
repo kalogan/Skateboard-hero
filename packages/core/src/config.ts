@@ -9,7 +9,7 @@
 
 import type { ObstacleDef, SimConfig, TrickDef } from './types.js';
 
-export const CONTENT_VERSION = 2;
+export const CONTENT_VERSION = 3;
 
 export const DEFAULT_OBSTACLES: readonly ObstacleDef[] = [
   { id: 'cone', kind: 'cone', width: 14, height: 18, weight: 5 },
@@ -27,11 +27,11 @@ export const DEFAULT_OBSTACLES: readonly ObstacleDef[] = [
  * 360-shuv are rarer and worth progressively more (harder trick = more points).
  */
 export const DEFAULT_TRICKS: readonly TrickDef[] = [
-  { id: 'ollie',    name: 'Ollie',       points: 100, weight: 5, flipAxis: 'none', flipTurns: 0, spinTurns: 0, spinDir: 1 },
-  { id: 'popshuv',  name: 'Pop Shuvit',  points: 150, weight: 4, flipAxis: 'shuv', flipTurns: 0, spinTurns: 0.5, spinDir: 1 },
-  { id: 'kickflip', name: 'Kickflip',    points: 250, weight: 3, flipAxis: 'kick', flipTurns: 1, spinTurns: 0, spinDir: -1 },
-  { id: 'heelflip', name: 'Heelflip',    points: 250, weight: 3, flipAxis: 'kick', flipTurns: 1, spinTurns: 0, spinDir: 1 },
-  { id: 'shuv360',  name: '360 Shuvit',  points: 400, weight: 2, flipAxis: 'shuv', flipTurns: 0, spinTurns: 1, spinDir: 1 },
+  { id: 'ollie',    name: 'Ollie',       points: 100, weight: 5, flipAxis: 'none', flipTurns: 0, spinTurns: 0,   spinDir: 1,  gesture: 'tap' },
+  { id: 'popshuv',  name: 'Pop Shuvit',  points: 150, weight: 4, flipAxis: 'shuv', flipTurns: 0, spinTurns: 0.5, spinDir: 1,  gesture: 'down' },
+  { id: 'kickflip', name: 'Kickflip',    points: 250, weight: 3, flipAxis: 'kick', flipTurns: 1, spinTurns: 0,   spinDir: -1, gesture: 'left' },
+  { id: 'heelflip', name: 'Heelflip',    points: 250, weight: 3, flipAxis: 'kick', flipTurns: 1, spinTurns: 0,   spinDir: 1,  gesture: 'doubleTap' },
+  { id: 'shuv360',  name: '360 Shuvit',  points: 400, weight: 2, flipAxis: 'shuv', flipTurns: 0, spinTurns: 1,   spinDir: 1,  gesture: 'up' },
 ];
 
 export const DEFAULT_CONFIG: SimConfig = {

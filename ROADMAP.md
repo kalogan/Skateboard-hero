@@ -10,12 +10,12 @@ independent ones fan out in parallel (pipeline §2).
   *Blocks everything.*
 
 ## Wave B — parallel (disjoint surfaces)
-- [ ] **Slice 1 — Core sim** · surface: `packages/core/src/**`
+- [x] **Slice 1 — Core sim** · surface: `packages/core/src/**`
   Pure fixed-timestep `step()`: board physics (roll + gravity + ollie arc),
   seeded obstacle spawner, AABB collision, bail/fail, scoring (distance +
   trick bonus), difficulty ramp. Golden replay fixture (seed → snapshot).
   Heaviest test surface.
-- [ ] **Slice 2 — Canvas renderer** · surface: `packages/render-canvas/src/**`
+- [x] **Slice 2 — Canvas renderer** · surface: `packages/render-canvas/src/**`
   Draw `WorldState`: board + trick spin, obstacles, scrolling ground, parallax
   backdrop, bail state. Cosmetic only; codes against the Slice-0 contract.
 

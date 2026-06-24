@@ -9,26 +9,35 @@
 
 import { type AudioContextLike, tone, noiseBurst } from './synth.js';
 
-/** Ollie: a rising "whip" — upward pitch glide plus a short scrape of grit. */
+/**
+ * Ollie: a soft air "whoosh" — as if you jumped. Primarily filtered noise with
+ * a lowpass that sweeps upward then is damped by the short decay (a gentle
+ * rising "whoomp" of moving air), under a faint low body tone. Deliberately
+ * quiet and dark: no bright/piercing highs.
+ */
 export function ollie(ctx: AudioContextLike, out: AudioNode): void {
   const t = ctx.currentTime;
+  // Faint low body — felt more than heard, gives the whoosh a little weight.
   tone(ctx, out, {
-    type: 'triangle',
-    freq: 220,
-    glideTo: 660,
-    peak: 0.5,
-    attack: 0.005,
+    type: 'sine',
+    freq: 150,
+    glideTo: 90,
+    peak: 0.12,
+    attack: 0.01,
     decay: 0.18,
     start: t,
   });
-  // Griptape scrape on the pop.
+  // Air-whoosh: lowpass noise sweeping up (~400→1100Hz) then fading. Soft and
+  // dark — the dominant voice, but well below the old piercing high tone.
   noiseBurst(ctx, out, {
-    seconds: 0.12,
-    filter: 'highpass',
-    cutoff: 2000,
-    peak: 0.25,
-    attack: 0.002,
-    decay: 0.1,
+    seconds: 0.22,
+    filter: 'lowpass',
+    cutoff: 400,
+    sweepTo: 1100,
+    q: 0.5,
+    peak: 0.18,
+    attack: 0.04,
+    decay: 0.16,
     start: t,
   });
 }

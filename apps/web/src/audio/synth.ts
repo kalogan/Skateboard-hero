@@ -123,6 +123,8 @@ export function noiseBurst(
     seconds: number;
     filter: BiquadFilterType;
     cutoff: number;
+    /** Optional target cutoff to glide the filter toward over the voice's life. */
+    sweepTo?: number;
     q?: number;
     peak: number;
     attack: number;
@@ -146,6 +148,15 @@ export function noiseBurst(
     decay: opts.decay,
     start,
   });
+
+  // Optional cutoff sweep — gives noise a "whoosh"/air-moving motion. Done after
+  // the envelope so we know the voice's stop time to ramp toward.
+  if (opts.sweepTo !== undefined) {
+    filter.frequency.exponentialRampToValueAtTime(
+      Math.max(opts.sweepTo, 0.0001),
+      stopAt,
+    );
+  }
 
   src.connect(filter);
   filter.connect(gain);

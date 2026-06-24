@@ -37,3 +37,5 @@ export {
   DEFAULT_CONFIG,
   DEFAULT_OBSTACLES,
 } from './config.js';
+
+export { createWorld, step } from './sim.js';

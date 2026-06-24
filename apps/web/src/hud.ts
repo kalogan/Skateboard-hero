@@ -48,20 +48,18 @@ export function createHud(root: HTMLElement): Hud {
       scoreEl.textContent = String(world.score);
       bestEl.textContent = `best ${best}`;
     },
-    setPhase(phase, score, best) {
-      if (phase === 'playing') {
+    setPhase(phase, _score, _best) {
+      // 'playing' and 'over' both hide the HUD card: during a run nothing
+      // overlays the action, and on game-over the leaderboard panel (owned by
+      // main) is the screen. Only 'start' shows a HUD card.
+      if (phase !== 'start') {
         overlayEl.hidden = true;
         return;
       }
       overlayEl.hidden = false;
-      cardEl.innerHTML =
-        phase === 'start'
-          ? `<h1>🛹 Skateboard&nbsp;Hero</h1>
+      cardEl.innerHTML = `<h1>🛹 Skateboard&nbsp;Hero</h1>
              <p class="big">tap to skate</p>
-             <p class="hint">tap / Space to ollie · time it over the obstacles</p>`
-          : `<h1>Bailed!</h1>
-             <p class="big">${score}</p>
-             <p class="hint">best ${best} · tap to retry</p>`;
+             <p class="hint">tap / Space to ollie · time it over the obstacles</p>`;
     },
     dispose() {
       hudEl.remove();

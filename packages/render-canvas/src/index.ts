@@ -22,7 +22,13 @@
  * timers, or hidden mutable state.
  */
 
-import type { Obstacle, SimConfig, WorldState } from '@skate/core';
+import type {
+  Obstacle,
+  SimConfig,
+  TrickDef,
+  TrickId,
+  WorldState,
+} from '@skate/core';
 
 export interface RendererOptions {
   /** Logical render size in device pixels. */
@@ -86,6 +92,12 @@ export function createRenderer(
 ): Renderer {
   const { config } = options;
   let layout = computeLayout(options.width, options.height);
+
+  // Trick catalog lookup (cosmetic only — the renderer reads visual params but
+  // never the sim's authoritative scoring).
+  const trickById = new Map<TrickId, TrickDef>(
+    config.tricks.map((t) => [t.id, t]),
+  );
 
   /** Map a world-y (height above ground) to a screen-y. +y world is up. */
   const toScreenY = (worldY: number): number =>
@@ -258,10 +270,41 @@ export function createRenderer(
 
     ctx.save();
     ctx.translate(cx, cy);
-    // Air-trick spin: rotate the whole sprite around its centre while airborne.
-    // When bailed, add a fixed tumble so the crash reads even if rotation is 0.
+
+    // ── Trick animation (cosmetic) ──
+    // `board.rotation` accumulates while airborne (resets to 0 on land), so it is
+    // our air-phase driver. Each named trick maps to a DISTINCT board motion via
+    // its catalog visual params: a yaw "shuv" flattens the deck (scaleX cosine),
+    // a "kick"/"heel" flip rolls it over its long axis (scaleY cosine, sign by
+    // spinDir), and a plain ollie just rides the base rotation. When bailed, add
+    // a fixed tumble so the crash reads even if rotation is 0.
     const tumble = bailed ? 0.5 : 0;
-    ctx.rotate(board.rotation + tumble);
+    const trick =
+      !board.grounded && board.trick ? trickById.get(board.trick) : undefined;
+
+    // Base nose-over rotation: small for flip/shuv tricks (they read via scale),
+    // full for the plain ollie so it still tumbles like before.
+    const baseSpin = trick && trick.flipAxis !== 'none' ? board.rotation * 0.25 : board.rotation;
+    ctx.rotate(baseSpin + tumble);
+
+    if (trick) {
+      // Phase in revolutions of the air arc (rotation is radians of base spin).
+      const phase = board.rotation / (Math.PI * 2);
+      if (trick.spinTurns > 0) {
+        // Yaw spin about the vertical axis → foreshorten width (fake 3D shuv).
+        const yaw = trick.spinDir * trick.spinTurns * phase * Math.PI * 2;
+        const sx = Math.cos(yaw);
+        // Avoid a fully-degenerate 0-width transform.
+        ctx.scale(sx === 0 ? 1e-3 : sx, 1);
+      }
+      if (trick.flipTurns > 0) {
+        // Flip about the long axis → foreshorten height; spinDir tilts the roll.
+        const roll = trick.flipTurns * phase * Math.PI * 2;
+        const sy = Math.cos(roll);
+        ctx.scale(1, sy === 0 ? 1e-3 : sy);
+        ctx.rotate(trick.spinDir * roll * 0.15);
+      }
+    }
 
     drawRider(w, h, board.grounded, bailed);
     drawDeck(w, h, bailed);

@@ -27,6 +27,51 @@ export type GameStatus = 'ready' | 'rolling' | 'bailed';
 export type ObstacleKind = 'cone' | 'rail' | 'crack' | 'bench';
 
 /**
+ * The flip axis of a trick — what the board does relative to its rolling axis
+ * while airborne. The renderer maps each to a distinct visual:
+ *  - `'none'`  — no board flip (e.g. a plain ollie / shuvit; spin only).
+ *  - `'kick'`  — flips along the board's long (length) axis toward the heel side
+ *    when negative / toe side when positive (kickflip / heelflip family).
+ *  - `'shuv'`  — the board spins flat about the vertical axis (pop shuvit / 360
+ *    shuvit family); no inversion, just yaw rotation.
+ */
+export type TrickFlipAxis = 'none' | 'kick' | 'shuv';
+
+/**
+ * Identifiers for the named tricks. The concrete catalog of `TrickDef`s lives in
+ * content (`config.ts`) and is validated by `lint:content`. Kept as a string so
+ * content can grow tricks without a type churn, but the default set is enumerated
+ * here for ergonomics.
+ */
+export type TrickId = 'ollie' | 'kickflip' | 'heelflip' | 'shuv360' | 'popshuv';
+
+/**
+ * A content-authored trick template (catalog entry). Versioned content:
+ * `lint:content` validates every def, the golden fixture pins selection/scoring.
+ *
+ * Visual params are purely cosmetic hints for the renderer — the core only reads
+ * `points` and `weight`. `spinTurns`/`flipTurns` are full revolutions completed
+ * over one (normalized) airborne arc; `spinDir` is the sign of the yaw spin.
+ */
+export interface TrickDef {
+  readonly id: TrickId;
+  /** Human-readable name (HUD / audio cues). */
+  readonly name: string;
+  /** Points awarded on a CLEAN landing. Must be > 0. */
+  readonly points: number;
+  /** Relative selection weight (higher = more common). Must be > 0. */
+  readonly weight: number;
+  /** What the board does in the air (renderer visual). */
+  readonly flipAxis: TrickFlipAxis;
+  /** Full board flips about `flipAxis` over the arc (>= 0). */
+  readonly flipTurns: number;
+  /** Full board yaw spins over the arc (>= 0). */
+  readonly spinTurns: number;
+  /** Sign of the yaw spin direction: +1 or -1. */
+  readonly spinDir: 1 | -1;
+}
+
+/**
  * A content-authored obstacle template (the catalog entry). Versioned content:
  * `lint:content` validates every def, the golden fixture pins spawn behaviour.
  */
@@ -61,6 +106,12 @@ export interface BoardState {
   readonly grounded: boolean;
   /** Board rotation in radians, for the air-trick spin (cosmetic-ish). */
   readonly rotation: number;
+  /**
+   * The trick selected for the current airborne hop (deterministically chosen
+   * from the catalog on each ollie), or `null` while grounded. The renderer and
+   * audio read this to draw/announce the trick; scoring reads its `points`.
+   */
+  readonly trick: TrickId | null;
 }
 
 /** A single tick's worth of player intent. One button → one verb. */
@@ -78,10 +129,12 @@ export interface WorldState {
   readonly distance: number;
   /** Current forward speed (units/sec); ramps with distance. */
   readonly speed: number;
-  /** Total score = distance + landed air-trick bonuses. */
+  /** Total score = floor(distance) + sum of landed trick points. */
   readonly score: number;
   /** Air tricks landed cleanly this run. */
   readonly tricks: number;
+  /** Sum of points from every trick landed cleanly this run. */
+  readonly trickScore: number;
   readonly board: BoardState;
   readonly obstacles: readonly Obstacle[];
   /** Seeded RNG cursor — carried in-state so a run is fully replayable. */
@@ -117,10 +170,14 @@ export interface SimConfig {
   /** Spawn spacing window, world units (min/max gap between obstacles). */
   readonly spawnGapMin: number;
   readonly spawnGapMax: number;
-  /** Score awarded per air trick landed. */
-  readonly trickBonus: number;
   /** The authorable obstacle catalog. */
   readonly obstacles: readonly ObstacleDef[];
+  /**
+   * The authorable trick catalog. On each ollie the sim deterministically picks
+   * one of these (weighted) and stores it on `board.trick`; a clean landing
+   * awards its `points`. Must be non-empty.
+   */
+  readonly tricks: readonly TrickDef[];
 }
 
 /**

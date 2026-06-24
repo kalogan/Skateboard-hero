@@ -14,6 +14,7 @@ import type {
   BoardState,
   Obstacle,
   ObstacleKind,
+  TrickId,
   WorldState,
 } from '@skate/core';
 import { createRenderer, type RendererOptions } from './index.js';
@@ -110,7 +111,7 @@ function asCtx(stub: StubContext): CanvasRenderingContext2D {
 }
 
 function makeBoard(over: Partial<BoardState> = {}): BoardState {
-  return { y: 0, vy: 0, grounded: true, rotation: 0, ...over };
+  return { y: 0, vy: 0, grounded: true, rotation: 0, trick: null, ...over };
 }
 
 function makeObstacle(
@@ -129,6 +130,7 @@ function makeWorld(over: Partial<WorldState> = {}): WorldState {
     speed: 320,
     score: 100,
     tricks: 0,
+    trickScore: 0,
     board: makeBoard(),
     obstacles: [],
     rng: 1,
@@ -230,6 +232,56 @@ describe('createRenderer', () => {
     const fullFrame = (s: StubContext): number =>
       s.named('fillRect').filter((c) => c.args[2] === 800 && c.args[3] === 600).length;
     expect(fullFrame(bailed)).toBeGreaterThan(fullFrame(rolling));
+  });
+
+  it('animates each trick distinctly (different ids → different draw calls)', () => {
+    // Same airborne pose + rotation; only the trick id varies. Each catalog
+    // trick should drive a distinguishable transform sequence.
+    const ids: TrickId[] = ['ollie', 'popshuv', 'kickflip', 'heelflip', 'shuv360'];
+    const transformsFor = (trick: TrickId): string => {
+      const stub = new StubContext();
+      createRenderer(asCtx(stub), OPTS).draw(
+        makeWorld({
+          board: makeBoard({ y: 90, grounded: false, rotation: 1.1, trick }),
+        }),
+      );
+      // Capture the full rotate/scale transform stream (the trick's visual DNA).
+      return JSON.stringify(
+        stub.calls
+          .filter((c) => c.name === 'rotate' || c.name === 'scale')
+          .map((c) => [c.name, c.args.map((a) => Math.round(a * 1e4) / 1e4)]),
+      );
+    };
+    const signatures = ids.map(transformsFor);
+    // All five trick signatures are pairwise distinct.
+    expect(new Set(signatures).size).toBe(ids.length);
+  });
+
+  it('does not throw for any catalog trick while airborne', () => {
+    const ids: TrickId[] = ['ollie', 'popshuv', 'kickflip', 'heelflip', 'shuv360'];
+    const stub = new StubContext();
+    const r = createRenderer(asCtx(stub), OPTS);
+    for (const trick of ids) {
+      for (const rotation of [0, 0.5, Math.PI, 3.7, 6.3]) {
+        expect(() =>
+          r.draw(makeWorld({ board: makeBoard({ y: 70, grounded: false, rotation, trick }) })),
+        ).not.toThrow();
+      }
+    }
+  });
+
+  it('ignores board.trick once grounded (no trick transform on the ground)', () => {
+    // Grounded with a (stale) trick id set should render like a plain grounded
+    // board — the trick animation only applies while airborne.
+    const withTrick = new StubContext();
+    const plain = new StubContext();
+    createRenderer(asCtx(withTrick), OPTS).draw(
+      makeWorld({ board: makeBoard({ y: 0, grounded: true, rotation: 0, trick: 'shuv360' }) }),
+    );
+    createRenderer(asCtx(plain), OPTS).draw(
+      makeWorld({ board: makeBoard({ y: 0, grounded: true, rotation: 0, trick: null }) }),
+    );
+    expect(withTrick.calls).toEqual(plain.calls);
   });
 
   it('is deterministic: same world yields identical call sequence', () => {

@@ -72,13 +72,59 @@ function computeLayout(
   };
 }
 
+/**
+ * Lane-mode layout. A VERTICAL view: the board sits near the bottom and the
+ * world scrolls bottom→top. We precompute the screen anchors so both `draw` and
+ * helpers can map (forward x → screenY) and (lane → screenX) without re-deriving.
+ */
+interface LaneLayout {
+  width: number;
+  height: number;
+  laneCount: number;
+  /** Left edge of the road band in screen px. */
+  roadLeft: number;
+  /** Screen px width of a single lane. */
+  laneScreenWidth: number;
+  /** Screen-y where the board's forward position (`boardX`) sits (near bottom). */
+  boardScreenY: number;
+  /** Screen px per world-x unit along the forward axis (toward the top). */
+  forwardScale: number;
+}
+
+function computeLaneLayout(
+  width: number,
+  height: number,
+  laneCount: number,
+): LaneLayout {
+  // The road spans the full width; lanes split it evenly.
+  const roadLeft = 0;
+  const laneScreenWidth = width / laneCount;
+  // Board rides ~82% down the canvas so most of the screen shows the road ahead.
+  const boardScreenY = Math.round(height * 0.82);
+  // Spread the visible look-ahead distance across the road above the board.
+  // 600 world units of forward distance fill the band above the board.
+  const forwardScale = boardScreenY / 600;
+  return {
+    width,
+    height,
+    laneCount,
+    roadLeft,
+    laneScreenWidth,
+    boardScreenY,
+    forwardScale,
+  };
+}
+
 export function createRenderer(
   ctx: CanvasRenderingContext2D,
   options: RendererOptions,
 ): Renderer {
   const { config } = options;
   const theme = options.theme ?? DEFAULT_THEME;
+  const isLanes = config.mode === 'lanes';
   let layout = computeLayout(options.width, options.height, theme.groundLineRatio);
+  const laneCount = Math.max(1, Math.floor(config.laneCount ?? 3));
+  let laneLayout = computeLaneLayout(options.width, options.height, laneCount);
 
   // Trick catalog lookup (cosmetic only — the renderer reads visual params but
   // never the sim's authoritative scoring).
@@ -356,8 +402,221 @@ export function createRenderer(
     ctx.closePath();
   }
 
+  // ──────────────────────────────────────────────────────────────────────
+  // LANE MODE (vertical, bottom-to-top) — only used when config.mode==='lanes'.
+  //
+  // Coordinate convention (matches the core sim):
+  //  - FORWARD axis (obstacle.x, the board's fixed boardX) → SCREEN-Y. Larger
+  //    forward x = farther ahead = higher on screen (smaller screenY). As an
+  //    obstacle's x decreases toward boardX it slides DOWN toward the board,
+  //    which sits near the bottom at `boardScreenY`.
+  //  - LATERAL axis (world.lateral, obstacle.lane) → SCREEN-X. `laneCount` lanes
+  //    spread across the width; a lane index gives the lane centre screen-x.
+  //  - board.y (jump height) lifts the board toward the top a touch (a hop).
+  // ──────────────────────────────────────────────────────────────────────
+
+  /** Forward world-x → screen-y (vertical view; ahead = up). */
+  const forwardToScreenY = (worldX: number): number =>
+    laneLayout.boardScreenY - (worldX - config.boardX) * laneLayout.forwardScale;
+
+  /** Lateral position in lane units → screen-x of that lane's centre. */
+  const laneToScreenX = (laneUnits: number): number =>
+    laneLayout.roadLeft + (laneUnits + 0.5) * laneLayout.laneScreenWidth;
+
+  function drawLaneBackground(): void {
+    const { width, height } = laneLayout;
+    // Sky/road backdrop reuses the themed sky gradient, top→bottom.
+    const sky = ctx.createLinearGradient(0, 0, 0, height);
+    sky.addColorStop(0, theme.palette.skyTop);
+    sky.addColorStop(1, theme.palette.skyBottom);
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  function drawLaneRoad(world: WorldState): void {
+    const { height, laneCount: n, roadLeft, laneScreenWidth } = laneLayout;
+    const roadWidth = laneScreenWidth * n;
+
+    // Road surface.
+    ctx.fillStyle = theme.palette.ground;
+    ctx.fillRect(roadLeft, 0, roadWidth, height);
+
+    // Bright edges down both sides of the road.
+    ctx.fillStyle = theme.palette.groundEdge;
+    ctx.fillRect(roadLeft, 0, 3, height);
+    ctx.fillRect(roadLeft + roadWidth - 3, 0, 3, height);
+
+    // Lane divider guides (between adjacent lanes).
+    ctx.fillStyle = theme.palette.groundStripe;
+    for (let i = 1; i < n; i++) {
+      const x = roadLeft + i * laneScreenWidth;
+      ctx.fillRect(x - 1, 0, 2, height);
+    }
+
+    // Scrolling dashes down the middle of each lane → sense of forward motion.
+    // The phase scrolls with distance so the road appears to rush toward us.
+    const dashSpan = theme.groundStripeSpan;
+    const dashLen = dashSpan * 0.5;
+    const phase = ((world.distance % dashSpan) + dashSpan) % dashSpan;
+    ctx.fillStyle = theme.palette.groundEdge;
+    for (let lane = 0; lane < n; lane++) {
+      const cx = laneToScreenX(lane);
+      for (let y = -dashSpan + phase; y < height; y += dashSpan) {
+        ctx.fillRect(cx - 2, y, 4, dashLen);
+      }
+    }
+  }
+
+  /** Draw one obstacle in lane mode at (lane→x, forward→y), sized by w/h. */
+  function drawLaneObstacle(o: Obstacle): void {
+    // An obstacle without a lane (shouldn't happen in lane mode) falls back to
+    // the middle lane so we never throw and it still reads on screen.
+    const lane = o.lane ?? Math.floor(laneLayout.laneCount / 2);
+    const cx = laneToScreenX(lane);
+    // The obstacle's leading-edge forward x maps to its base (nearest) screen-y;
+    // its footprint extends a touch up-screen so taller items read as taller.
+    const baseScreenY = forwardToScreenY(o.x);
+    const drawW = Math.min(o.width * 2.4, laneLayout.laneScreenWidth * 0.8);
+    const drawH = o.height * 2.4;
+    const left = cx - drawW / 2;
+    const topScreenY = baseScreenY - drawH;
+
+    ctx.save();
+    ctx.globalAlpha = o.cleared ? 0.55 : 1;
+
+    // Contact shadow on the road.
+    ctx.fillStyle = theme.palette.obstacleShadow;
+    ctx.beginPath();
+    ctx.ellipse(cx, baseScreenY + 3, drawW * 0.55, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    switch (o.kind) {
+      case 'cone': {
+        ctx.fillStyle = theme.palette.cone;
+        ctx.beginPath();
+        ctx.moveTo(cx, topScreenY);
+        ctx.lineTo(left, baseScreenY);
+        ctx.lineTo(left + drawW, baseScreenY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = theme.palette.coneStripe;
+        ctx.fillRect(left + drawW * 0.18, baseScreenY - drawH * 0.45, drawW * 0.64, drawH * 0.16);
+        break;
+      }
+      case 'crack': {
+        // Low jagged gap across the lane.
+        ctx.fillStyle = theme.palette.obstacleShadow;
+        ctx.beginPath();
+        ctx.moveTo(left, baseScreenY);
+        ctx.lineTo(left + drawW * 0.3, baseScreenY - drawH);
+        ctx.lineTo(left + drawW * 0.55, baseScreenY - drawH * 0.4);
+        ctx.lineTo(left + drawW * 0.8, baseScreenY - drawH);
+        ctx.lineTo(left + drawW, baseScreenY);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+      case 'rail': {
+        ctx.fillStyle = theme.palette.obstacle;
+        ctx.fillRect(left, topScreenY, drawW, Math.max(4, drawH * 0.18));
+        ctx.fillStyle = theme.palette.obstacleShadow;
+        ctx.fillRect(left + 4, topScreenY, 4, baseScreenY - topScreenY);
+        ctx.fillRect(left + drawW - 8, topScreenY, 4, baseScreenY - topScreenY);
+        break;
+      }
+      case 'bench': {
+        ctx.fillStyle = theme.palette.obstacle;
+        ctx.fillRect(left, topScreenY, drawW, baseScreenY - topScreenY);
+        ctx.fillStyle = theme.palette.obstacleShadow;
+        ctx.fillRect(left, topScreenY, drawW, Math.max(3, drawH * 0.18));
+        break;
+      }
+      default: {
+        ctx.fillStyle = theme.palette.obstacle;
+        ctx.fillRect(left, topScreenY, drawW, baseScreenY - topScreenY);
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Draw the board near the bottom at its lateral screen-x (+ jump lift). */
+  function drawLaneBoard(world: WorldState): void {
+    const { board } = world;
+    const bailed = world.status === 'bailed';
+    const w = config.boardWidth;
+    const h = config.boardHeight;
+
+    // Lateral position drives screen-x; default to the centre lane if absent.
+    const lateral = world.lateral ?? Math.floor(laneLayout.laneCount / 2);
+    const cx = laneToScreenX(lateral);
+    // The board sits at boardScreenY; jump height (board.y) lifts it up-screen.
+    const cy = laneLayout.boardScreenY - board.y - h / 2;
+
+    // Ground shadow shrinks as the board rises (sense of height).
+    const liftRatio = Math.min(1, Math.max(0, board.y / 200));
+    ctx.save();
+    ctx.globalAlpha = 0.35 * (1 - liftRatio * 0.7);
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.ellipse(cx, laneLayout.boardScreenY + 4, w * 0.55 * (1 - liftRatio * 0.4), 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // Reuse the classic trick/jump visuals: same airborne spin/flip animation.
+    const tumble = bailed ? 0.5 : 0;
+    const trick =
+      !board.grounded && board.trick ? trickById.get(board.trick) : undefined;
+    const baseSpin = trick && trick.flipAxis !== 'none' ? board.rotation * 0.25 : board.rotation;
+    ctx.rotate(baseSpin + tumble);
+
+    if (trick) {
+      const phase = board.rotation / (Math.PI * 2);
+      if (trick.spinTurns > 0) {
+        const yaw = trick.spinDir * trick.spinTurns * phase * Math.PI * 2;
+        const sx = Math.cos(yaw);
+        ctx.scale(sx === 0 ? 1e-3 : sx, 1);
+      }
+      if (trick.flipTurns > 0) {
+        const roll = trick.flipTurns * phase * Math.PI * 2;
+        const sy = Math.cos(roll);
+        ctx.scale(1, sy === 0 ? 1e-3 : sy);
+        ctx.rotate(trick.spinDir * roll * 0.15);
+      }
+    }
+
+    drawRider(w, h, board.grounded, bailed);
+    drawDeck(w, h, bailed);
+
+    ctx.restore();
+  }
+
+  function drawLanes(world: WorldState): void {
+    const { width, height } = laneLayout;
+    ctx.clearRect(0, 0, width, height);
+
+    drawLaneBackground();
+    drawLaneRoad(world);
+
+    // Obstacles behind the board, then the board on top.
+    for (const o of world.obstacles) drawLaneObstacle(o);
+    drawLaneBoard(world);
+
+    // Bail: reuse the same crash tint over the whole frame.
+    if (world.status === 'bailed') {
+      ctx.fillStyle = theme.palette.bailTint;
+      ctx.fillRect(0, 0, width, height);
+    }
+  }
+
   return {
     draw(world: WorldState): void {
+      if (isLanes) {
+        drawLanes(world);
+        return;
+      }
       const { width, height } = layout;
       ctx.clearRect(0, 0, width, height);
 
@@ -376,6 +635,7 @@ export function createRenderer(
     },
     resize(w: number, h: number): void {
       layout = computeLayout(w, h, theme.groundLineRatio);
+      laneLayout = computeLaneLayout(w, h, laneCount);
     },
   };
 }

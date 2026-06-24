@@ -33,7 +33,12 @@ import {
 type TrickGesture = TrickDef['gesture'];
 import { createRenderer, type Renderer } from '@skate/render-canvas';
 import { createGameAudio, type GameAudio } from '../audio/index.js';
-import { buildConfig, defaultKnobs, type PreviewKnobs } from './buildConfig.js';
+import {
+  buildConfig,
+  defaultKnobs,
+  type GameMode,
+  type PreviewKnobs,
+} from './buildConfig.js';
 import {
   buildTheme,
   defaultThemeKnobs,
@@ -143,6 +148,19 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
     pendingIntent = { ollie: true, gesture };
   }
 
+  /** Lane shift — feed a directional gesture WITHOUT an ollie, so the lane sim
+   *  reads it as a left/right lane move (not a trick takeoff). */
+  function queueLaneShift(dir: 'left' | 'right'): void {
+    audio.unlock();
+    pendingIntent = { ollie: false, gesture: dir };
+  }
+
+  /** Lane jump — a plain hop over an obstacle (ollie, no directional gesture). */
+  function queueLaneJump(): void {
+    audio.unlock();
+    pendingIntent = { ollie: true };
+  }
+
   // ── The fixed-timestep loop (our own accumulator calling step() directly) ──
   function frame(): void {
     const now = performance.now();
@@ -189,7 +207,8 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
 
   function updateReadout(): void {
     readout.innerHTML = '';
-    const fields: ReadonlyArray<[string, string]> = [
+    const fields: Array<[string, string]> = [
+      ['mode', knobs.mode],
       ['status', world.status],
       ['score', String(world.score)],
       ['dist', String(Math.floor(world.distance))],
@@ -198,12 +217,19 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
       ['trick', world.board.trick ?? '—'],
       ['seed', String(knobs.seed)],
     ];
+    // Lane-mode only: surface the live lane index when the sim reports it.
+    if (knobs.mode === 'lanes' && world.lane !== undefined) {
+      fields.splice(2, 0, ['lane', String(world.lane)]);
+    }
     for (const [k, v] of fields) {
       const span = document.createElement('span');
       span.innerHTML = `${k} <b>${v}</b>`;
       readout.appendChild(span);
     }
   }
+
+  // Lane-controls section, kept as a ref so mode switches can show/hide it.
+  let laneSection: HTMLElement | null = null;
 
   // ── Build the control panel (data-driven where possible) ──
   buildPanel();
@@ -212,6 +238,16 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
     const title = el('h1');
     title.textContent = 'Preview Harness';
     panel.appendChild(title);
+
+    // ── Game Mode A/B (doc §4: both modes mount the REAL renderer + REAL sim;
+    //    never a preview fork). Switching rebuilds the config and RESTARTS the
+    //    run, because classic and lanes are different sim MODELS. ──
+    buildModeSection();
+
+    // ── Lane controls — visible/relevant in Lanes mode. They feed the REAL sim
+    //    an InputIntent on the next step(s) via the same pending-intent the
+    //    gesture buttons use (the preview drives the sim itself). ──
+    buildLaneSection();
 
     // Skateboard knobs.
     const board = group('Skateboard');
@@ -346,14 +382,91 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
     const boundary = el('div', 'pv-note');
     boundary.dataset.testid = 'preview-boundary';
     boundary.innerHTML =
-      '<b>Boundary (doc §6).</b> Theme / art is now wired — the palette, ' +
-      'parallax and ground knobs above build a real <code>RenderTheme</code> and ' +
-      'recreate the actual <code>@skate/render-canvas</code> renderer, so the ' +
-      'look you see is what ships. Still NOT verifiable here: audio is a ' +
-      'dev-only WebAudio synth (not the shipped asset mix), and ' +
-      'server-authoritative scoring / persistence are stubbed by construction. ' +
-      'A green harness is not a green system.';
+      '<b>Boundary (doc §6).</b> The Game-Mode A/B is now REAL on both sides — ' +
+      'Classic and Lanes each mount the same <code>@skate/core</code> ' +
+      '<code>createWorld</code>/<code>step</code> and the same ' +
+      '<code>@skate/render-canvas</code> renderer (no preview fork); switching ' +
+      'restarts the run because they are different sim models. Theme / art is ' +
+      'wired too — the palette, parallax and ground knobs build a real ' +
+      '<code>RenderTheme</code>, so the look you see is what ships. Still NOT ' +
+      'verifiable here: audio is a dev-only WebAudio synth (not the shipped ' +
+      'asset mix), and server-authoritative scoring / persistence are stubbed ' +
+      'by construction. A green harness is not a green system.';
     panel.appendChild(boundary);
+  }
+
+  /** Game Mode A/B: a segmented control switching Classic ⇄ Lanes. Switching
+   *  sets `knobs.mode`, rebuilds the config, and RESTARTS the run via
+   *  `applyKnobs()` — recreating both the REAL sim (`createWorld`/`step`) and the
+   *  REAL renderer (`createRenderer`), since the two modes are different models. */
+  function buildModeSection(): void {
+    const mode = group('Game Mode');
+    const seg = el('div', 'pv-row');
+    seg.dataset.testid = 'mode-toggle';
+
+    const modes: ReadonlyArray<[GameMode, string]> = [
+      ['classic', 'Classic (horizontal)'],
+      ['lanes', 'Lanes (vertical)'],
+    ];
+    const buttons: HTMLButtonElement[] = [];
+    function paint(): void {
+      for (const b of buttons) {
+        b.classList.toggle('pv-btn--active', b.dataset.mode === knobs.mode);
+      }
+    }
+    for (const [m, label] of modes) {
+      const b = btn(label, `mode-${m}`, () => {
+        if (knobs.mode === m) return;
+        knobs = { ...knobs, mode: m };
+        paint();
+        updateLaneVisibility();
+        // Different sim model → recreate world + renderer and restart the run.
+        applyKnobs();
+      });
+      b.dataset.mode = m;
+      buttons.push(b);
+      seg.appendChild(b);
+    }
+    paint();
+    mode.appendChild(seg);
+    panel.appendChild(mode);
+  }
+
+  /** Lane controls + lane-specific knobs. The buttons feed the REAL sim an
+   *  `InputIntent` via the shared pending-intent (left/right = lane shift,
+   *  jump = ollie hop). The whole section is shown only in Lanes mode. */
+  function buildLaneSection(): void {
+    const lane = group('Lane controls');
+    laneSection = lane;
+
+    const ctrlRow = el('div', 'pv-row');
+    const left = btn('◀ lane', 'lane-left', () => queueLaneShift('left'));
+    left.dataset.lane = 'left';
+    const jump = btn('jump', 'lane-jump', () => queueLaneJump());
+    jump.dataset.lane = 'jump';
+    const right = btn('lane ▶', 'lane-right', () => queueLaneShift('right'));
+    right.dataset.lane = 'right';
+    ctrlRow.appendChild(left);
+    ctrlRow.appendChild(jump);
+    ctrlRow.appendChild(right);
+    lane.appendChild(ctrlRow);
+
+    // Lane-specific knobs (enumerated from the config contract). These rebuild
+    // the config + restart, like the other sim knobs.
+    rangeKnob(lane, 'laneCount', 'lane count', 2, 6, 1, () => knobs.laneCount, (v) => {
+      knobs = { ...knobs, laneCount: v };
+    });
+    rangeKnob(lane, 'laneShiftSpeed', 'lane shift speed (lanes/sec)', 1, 24, 0.5, () => knobs.laneShiftSpeed, (v) => {
+      knobs = { ...knobs, laneShiftSpeed: v };
+    });
+
+    panel.appendChild(lane);
+    updateLaneVisibility();
+  }
+
+  /** Show the lane controls only in Lanes mode (they are inert in classic). */
+  function updateLaneVisibility(): void {
+    if (laneSection) laneSection.style.display = knobs.mode === 'lanes' ? '' : 'none';
   }
 
   /** Build the Theme / Art controls: palette color pickers + parallax/layout

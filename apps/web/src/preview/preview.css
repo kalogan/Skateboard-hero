@@ -131,6 +131,13 @@ button.pv-btn:hover {
 button.pv-btn:active {
   background: #3a3a66;
 }
+/* Segmented-control active state (Game Mode A/B toggle). */
+button.pv-btn--active {
+  background: #4a4a8c;
+  border-color: #6a6ab0;
+  color: #fff;
+  font-weight: 600;
+}
 
 .pv-trick-list {
   list-style: none;

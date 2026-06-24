@@ -3,14 +3,29 @@
  *
  * It reads a `WorldState` and draws it. It must never mutate sim state or carry
  * game logic (pipeline §5: clients are optimistic-cosmetic; the core is
- * authoritative). Slice 2 implements the real drawing; Slice 0 only fixes the
+ * authoritative). Slice 2 implements the real drawing; Slice 0 only fixed the
  * seam so the app can wire a renderer in.
+ *
+ * COORDINATE CONVENTION (shared 1:1 with the core sim):
+ *  - World-x maps directly to canvas x. The board is drawn at `config.boardX`;
+ *    obstacles carry a world `x` that decreases as they approach (enter right,
+ *    exit left) and are drawn at screen x = `obstacle.x`.
+ *  - +y is UP. `groundY` (0) is the ground; `board.y` is height ABOVE ground.
+ *    We pick a ground line near the bottom of the canvas and map any world-y to
+ *    screen via `screenY = groundLineY - (worldY - groundY)`.
+ *  - The canvas is sized in DEVICE pixels (the app passes `canvas.width/height`,
+ *    already scaled by dpr), and world units are device pixels, so no extra
+ *    scaling is applied — `width`/`height` drive layout only.
+ *
+ * Rendering is deterministic: every per-frame visual is derived from
+ * `WorldState` (mainly `distance`) or fixed layout, never from `Math.random`,
+ * timers, or hidden mutable state.
  */
 
-import type { SimConfig, WorldState } from '@skate/core';
+import type { Obstacle, SimConfig, WorldState } from '@skate/core';
 
 export interface RendererOptions {
-  /** Logical render size in CSS pixels. */
+  /** Logical render size in device pixels. */
   readonly width: number;
   readonly height: number;
   readonly config: SimConfig;
@@ -24,23 +39,312 @@ export interface Renderer {
 }
 
 /**
- * Create a renderer bound to a 2D context. Slice 2 replaces the body with real
- * drawing (board, obstacles, ground, parallax, trick spin, bail). For now it
- * clears the frame so the app has something coherent to mount.
+ * Palette. Placeholder art direction — flagged for the Director to refine
+ * (REVIEW_QUEUE: palette / juice / real sprites).
  */
+const PALETTE = {
+  skyTop: '#1b2a4a',
+  skyBottom: '#3a5a86',
+  hillsFar: '#2c3f63',
+  hillsNear: '#24496b',
+  buildings: '#1a2740',
+  ground: '#2a2320',
+  groundStripe: '#3a322c',
+  groundEdge: '#6b5d4f',
+  board: '#e8a13a',
+  boardGrip: '#211b16',
+  wheel: '#d8d8e0',
+  rider: '#e8e8f0',
+  riderAccent: '#ff5a7a',
+  obstacle: '#c8d0dc',
+  obstacleShadow: '#7c8696',
+  cone: '#ff7a3c',
+  coneStripe: '#ffe0c8',
+  bailTint: 'rgba(20, 8, 8, 0.45)',
+} as const;
+
+/** Internal, derived layout. Recomputed on construct + resize. */
+interface Layout {
+  width: number;
+  height: number;
+  /** Screen-y of the ground plane (world-y === groundY). */
+  groundLineY: number;
+}
+
+function computeLayout(width: number, height: number): Layout {
+  return {
+    width,
+    height,
+    // Ground sits ~22% up from the bottom, leaving room for the board to land.
+    groundLineY: Math.round(height * 0.78),
+  };
+}
+
 export function createRenderer(
   ctx: CanvasRenderingContext2D,
   options: RendererOptions,
 ): Renderer {
-  let { width, height } = options;
+  const { config } = options;
+  let layout = computeLayout(options.width, options.height);
+
+  /** Map a world-y (height above ground) to a screen-y. +y world is up. */
+  const toScreenY = (worldY: number): number =>
+    layout.groundLineY - (worldY - config.groundY);
+
+  function drawBackground(world: WorldState): void {
+    const { width, height, groundLineY } = layout;
+
+    // Sky gradient.
+    const sky = ctx.createLinearGradient(0, 0, 0, groundLineY);
+    sky.addColorStop(0, PALETTE.skyTop);
+    sky.addColorStop(1, PALETTE.skyBottom);
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, width, groundLineY);
+
+    // Parallax skyline — far hills (slowest) and a building strip (faster).
+    drawParallaxHills(world.distance * 0.04, groundLineY, height, PALETTE.hillsFar, 0.20);
+    drawParallaxHills(world.distance * 0.08, groundLineY, height, PALETTE.hillsNear, 0.13);
+    drawBuildings(world.distance * 0.16, groundLineY);
+  }
+
+  /** A repeating row of rounded hills, offset by a parallax-scrolled phase. */
+  function drawParallaxHills(
+    offset: number,
+    baseY: number,
+    height: number,
+    color: string,
+    amplitudeFactor: number,
+  ): void {
+    const { width } = layout;
+    const span = 220;
+    const amp = height * amplitudeFactor;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, baseY);
+    // Start one span left of screen so the leftmost hump is always covered.
+    const phase = ((offset % span) + span) % span;
+    for (let cx = -span - phase; cx <= width + span; cx += span) {
+      // Quadratic hump peaking between cx and cx+span.
+      ctx.quadraticCurveTo(cx + span / 2, baseY - amp, cx + span, baseY);
+    }
+    ctx.lineTo(width, baseY);
+    ctx.lineTo(0, baseY);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /** A scrolling block-skyline of buildings for closer parallax depth. */
+  function drawBuildings(offset: number, baseY: number): void {
+    const { width } = layout;
+    const span = 90;
+    const phase = ((offset % span) + span) % span;
+    ctx.fillStyle = PALETTE.buildings;
+    for (let cx = -phase; cx < width; cx += span) {
+      // Deterministic pseudo-height from the building's index, not RNG.
+      const seed = Math.floor((cx + offset) / span);
+      const h = 40 + ((seed * 53) % 7) * 14;
+      const w = span * 0.62;
+      ctx.fillRect(cx, baseY - h, w, h);
+    }
+  }
+
+  function drawGround(world: WorldState): void {
+    const { width, height, groundLineY } = layout;
+
+    // Solid surface below the ground line.
+    ctx.fillStyle = PALETTE.ground;
+    ctx.fillRect(0, groundLineY, width, height - groundLineY);
+
+    // Bright edge highlight along the ground line.
+    ctx.fillStyle = PALETTE.groundEdge;
+    ctx.fillRect(0, groundLineY - 2, width, 3);
+
+    // Scrolling stripes derived from distance — the sense of speed.
+    const stripeSpan = 48;
+    const phase = ((world.distance % stripeSpan) + stripeSpan) % stripeSpan;
+    ctx.fillStyle = PALETTE.groundStripe;
+    for (let cx = -phase; cx < width; cx += stripeSpan) {
+      ctx.fillRect(cx, groundLineY + 8, stripeSpan * 0.5, 4);
+    }
+  }
+
+  function drawObstacle(o: Obstacle): void {
+    const baseScreenY = toScreenY(0); // ground line
+    const topScreenY = toScreenY(o.height);
+    const left = o.x;
+
+    ctx.save();
+    // Cleared obstacles (already behind the skater / scored) dim slightly.
+    ctx.globalAlpha = o.cleared ? 0.55 : 1;
+
+    // Contact shadow on the ground.
+    ctx.fillStyle = PALETTE.obstacleShadow;
+    ctx.beginPath();
+    ctx.ellipse(left + o.width / 2, baseScreenY + 4, o.width * 0.6, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    switch (o.kind) {
+      case 'cone': {
+        // Triangular silhouette with a hazard stripe.
+        ctx.fillStyle = PALETTE.cone;
+        ctx.beginPath();
+        ctx.moveTo(left + o.width / 2, topScreenY);
+        ctx.lineTo(left, baseScreenY);
+        ctx.lineTo(left + o.width, baseScreenY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = PALETTE.coneStripe;
+        ctx.fillRect(left + o.width * 0.18, baseScreenY - o.height * 0.45, o.width * 0.64, o.height * 0.16);
+        break;
+      }
+      case 'crack': {
+        // Low jagged gap in the ground.
+        ctx.fillStyle = PALETTE.obstacleShadow;
+        ctx.beginPath();
+        ctx.moveTo(left, baseScreenY);
+        ctx.lineTo(left + o.width * 0.3, baseScreenY - o.height);
+        ctx.lineTo(left + o.width * 0.55, baseScreenY - o.height * 0.4);
+        ctx.lineTo(left + o.width * 0.8, baseScreenY - o.height);
+        ctx.lineTo(left + o.width, baseScreenY);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+      case 'rail': {
+        // Angled grind rail on two posts.
+        ctx.fillStyle = PALETTE.obstacle;
+        ctx.fillRect(left, topScreenY, o.width, Math.max(4, o.height * 0.18));
+        ctx.fillStyle = PALETTE.obstacleShadow;
+        ctx.fillRect(left + 4, topScreenY, 4, baseScreenY - topScreenY);
+        ctx.fillRect(left + o.width - 8, topScreenY, 4, baseScreenY - topScreenY);
+        break;
+      }
+      case 'bench': {
+        // Box silhouette with a seat highlight.
+        ctx.fillStyle = PALETTE.obstacle;
+        ctx.fillRect(left, topScreenY, o.width, baseScreenY - topScreenY);
+        ctx.fillStyle = PALETTE.obstacleShadow;
+        ctx.fillRect(left, topScreenY, o.width, Math.max(3, o.height * 0.18));
+        break;
+      }
+      default: {
+        // Defensive fallback: a plain box so unknown kinds still render.
+        ctx.fillStyle = PALETTE.obstacle;
+        ctx.fillRect(left, topScreenY, o.width, baseScreenY - topScreenY);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawBoard(world: WorldState): void {
+    const { board } = world;
+    const bailed = world.status === 'bailed';
+    const w = config.boardWidth;
+    const h = config.boardHeight;
+
+    // Board centre. The board's screen x is fixed at boardX; y lifts with board.y.
+    const cx = config.boardX + w / 2;
+    const cy = toScreenY(board.y) - h / 2;
+
+    // Ground shadow shrinks as the board rises (sense of height).
+    const liftRatio = Math.min(1, Math.max(0, board.y / 200));
+    ctx.save();
+    ctx.globalAlpha = 0.35 * (1 - liftRatio * 0.7);
+    ctx.fillStyle = '#000000';
+    ctx.beginPath();
+    ctx.ellipse(cx, toScreenY(0) + 4, w * 0.55 * (1 - liftRatio * 0.4), 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    // Air-trick spin: rotate the whole sprite around its centre while airborne.
+    // When bailed, add a fixed tumble so the crash reads even if rotation is 0.
+    const tumble = bailed ? 0.5 : 0;
+    ctx.rotate(board.rotation + tumble);
+
+    drawRider(w, h, board.grounded, bailed);
+    drawDeck(w, h, bailed);
+
+    ctx.restore();
+  }
+
+  /** The skateboard deck + wheels, centred on the current transform origin. */
+  function drawDeck(w: number, h: number, bailed: boolean): void {
+    const deckH = h * 0.42;
+    // Deck.
+    ctx.fillStyle = bailed ? '#8a6020' : PALETTE.board;
+    roundRect(-w / 2, -deckH / 2, w, deckH, deckH / 2);
+    ctx.fill();
+    // Grip tape strip.
+    ctx.fillStyle = PALETTE.boardGrip;
+    ctx.fillRect(-w / 2 + 3, -deckH / 2, w - 6, Math.max(2, deckH * 0.25));
+    // Wheels.
+    ctx.fillStyle = PALETTE.wheel;
+    const wheelR = h * 0.16;
+    const wy = deckH / 2 + wheelR * 0.4;
+    for (const wx of [-w / 2 + w * 0.22, w / 2 - w * 0.22]) {
+      ctx.beginPath();
+      ctx.arc(wx, wy, wheelR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  /** A simple rider standing on the deck. Posture differs grounded vs airborne. */
+  function drawRider(w: number, h: number, grounded: boolean, bailed: boolean): void {
+    const deckTop = -h * 0.21;
+    const bodyH = h * 1.5;
+    ctx.save();
+    ctx.fillStyle = bailed ? '#9a9aa6' : PALETTE.rider;
+    // Crouch lower when grounded; extend taller when airborne (tucked/popping).
+    const lean = grounded ? 0 : -w * 0.12;
+    const torsoH = grounded ? bodyH * 0.78 : bodyH;
+    // Legs.
+    ctx.fillRect(-w * 0.12 + lean, deckTop - torsoH * 0.5, w * 0.1, torsoH * 0.5);
+    ctx.fillRect(w * 0.04 + lean, deckTop - torsoH * 0.5, w * 0.1, torsoH * 0.5);
+    // Torso.
+    ctx.fillStyle = bailed ? '#7a7a86' : PALETTE.riderAccent;
+    ctx.fillRect(-w * 0.13 + lean, deckTop - torsoH, w * 0.26, torsoH * 0.55);
+    // Head.
+    ctx.fillStyle = bailed ? '#9a9aa6' : PALETTE.rider;
+    ctx.beginPath();
+    ctx.arc(lean, deckTop - torsoH - h * 0.18, h * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** Path helper: a rounded rectangle (no fill — caller fills/strokes). */
+  function roundRect(x: number, y: number, w: number, h: number, r: number): void {
+    const rad = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rad);
+    ctx.arcTo(x + w, y + h, x, y + h, rad);
+    ctx.arcTo(x, y + h, x, y, rad);
+    ctx.arcTo(x, y, x + w, y, rad);
+    ctx.closePath();
+  }
 
   return {
-    draw(_world: WorldState): void {
+    draw(world: WorldState): void {
+      const { width, height } = layout;
       ctx.clearRect(0, 0, width, height);
+
+      drawBackground(world);
+      drawGround(world);
+
+      // Obstacles behind the board, then the board on top.
+      for (const o of world.obstacles) drawObstacle(o);
+      drawBoard(world);
+
+      // Bail: desaturating crash tint over the whole frame (HUD text is Slice 3).
+      if (world.status === 'bailed') {
+        ctx.fillStyle = PALETTE.bailTint;
+        ctx.fillRect(0, 0, width, height);
+      }
     },
     resize(w: number, h: number): void {
-      width = w;
-      height = h;
+      layout = computeLayout(w, h);
     },
   };
 }

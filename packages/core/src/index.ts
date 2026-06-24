@@ -15,6 +15,9 @@ export type {
   ObstacleKind,
   ObstacleDef,
   Obstacle,
+  TrickFlipAxis,
+  TrickId,
+  TrickDef,
   BoardState,
   InputIntent,
   WorldState,
@@ -36,6 +39,7 @@ export {
   CONTENT_VERSION,
   DEFAULT_CONFIG,
   DEFAULT_OBSTACLES,
+  DEFAULT_TRICKS,
 } from './config.js';
 
 export { createWorld, step } from './sim.js';

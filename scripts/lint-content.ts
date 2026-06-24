@@ -1,7 +1,7 @@
 /**
  * Content lint (pipeline §B: "always run content/data lint — easiest to skip,
- * cheapest to catch"). Validates the versioned obstacle catalog so a malformed
- * content edit fails the gate instead of shipping a broken spawn table.
+ * cheapest to catch"). Validates the versioned obstacle + trick catalogs so a
+ * malformed content edit fails the gate instead of shipping a broken table.
  *
  * Run: `pnpm lint:content` (tsx). Exit 0 = clean, exit 1 = violations.
  */
@@ -9,11 +9,15 @@
 import {
   CONTENT_VERSION,
   DEFAULT_OBSTACLES,
+  DEFAULT_TRICKS,
   type ObstacleDef,
   type ObstacleKind,
+  type TrickDef,
+  type TrickFlipAxis,
 } from '@skate/core';
 
 const VALID_KINDS: readonly ObstacleKind[] = ['cone', 'rail', 'crack', 'bench'];
+const VALID_FLIP_AXES: readonly TrickFlipAxis[] = ['none', 'kick', 'shuv'];
 
 const errors: string[] = [];
 
@@ -43,9 +47,32 @@ for (const [i, def] of DEFAULT_OBSTACLES.entries()) {
   check(def.weight > 0, `${where}: weight must be > 0`);
 }
 
-// Surface unused import defensively so tsx/tsc flag drift in the type contract.
+// ── Trick catalog ──
+check(DEFAULT_TRICKS.length > 0, 'trick catalog must not be empty');
+
+const seenTrickIds = new Set<string>();
+for (const [i, def] of DEFAULT_TRICKS.entries()) {
+  const where = `trick[${i}] (${def.id ?? '<no id>'})`;
+  check(typeof def.id === 'string' && def.id.length > 0, `${where}: id must be a non-empty string`);
+  check(!seenTrickIds.has(def.id), `${where}: duplicate id "${def.id}"`);
+  seenTrickIds.add(def.id);
+  check(typeof def.name === 'string' && def.name.length > 0, `${where}: name must be a non-empty string`);
+  check(typeof def.points === 'number' && def.points > 0, `${where}: points must be > 0`);
+  check(typeof def.weight === 'number' && def.weight > 0, `${where}: weight must be > 0`);
+  check(
+    VALID_FLIP_AXES.includes(def.flipAxis),
+    `${where}: invalid flipAxis "${def.flipAxis}" (expected one of ${VALID_FLIP_AXES.join(', ')})`,
+  );
+  check(Number.isFinite(def.flipTurns) && def.flipTurns >= 0, `${where}: flipTurns must be >= 0`);
+  check(Number.isFinite(def.spinTurns) && def.spinTurns >= 0, `${where}: spinTurns must be >= 0`);
+  check(def.spinDir === 1 || def.spinDir === -1, `${where}: spinDir must be 1 or -1`);
+}
+
+// Surface unused imports defensively so tsx/tsc flag drift in the type contract.
 const _typecheck: ObstacleDef = DEFAULT_OBSTACLES[0]!;
 void _typecheck;
+const _typecheckTrick: TrickDef = DEFAULT_TRICKS[0]!;
+void _typecheckTrick;
 
 if (errors.length > 0) {
   console.error(`content lint: ${errors.length} violation(s):`);
@@ -53,4 +80,6 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`content lint: ok (version ${CONTENT_VERSION}, ${DEFAULT_OBSTACLES.length} obstacles)`);
+console.log(
+  `content lint: ok (version ${CONTENT_VERSION}, ${DEFAULT_OBSTACLES.length} obstacles, ${DEFAULT_TRICKS.length} tricks)`,
+);

@@ -99,11 +99,9 @@ describe('variable jump (Super-Mario style)', () => {
 
   it('jumpHeld never set ⇒ trajectory identical to the legacy fixed hop', () => {
     // With NO hold config either, the variable-jump branch is fully inert.
-    const fixed: SimConfig = {
-      ...DEFAULT_CONFIG,
-      jumpHoldMaxTime: undefined,
-      jumpHoldGravityScale: undefined,
-    };
+    // Omit the hold keys entirely (exactOptionalPropertyTypes forbids `undefined`).
+    const { jumpHoldMaxTime: _m, jumpHoldGravityScale: _s, ...rest } = DEFAULT_CONFIG;
+    const fixed: SimConfig = rest;
     // Compare a never-held run under DEFAULT_CONFIG vs the fixed (no-config) run:
     // both must produce the same arc, since DEFAULT's float never engages.
     const runArc = (cfg: SimConfig): number[] => {
@@ -119,11 +117,9 @@ describe('variable jump (Super-Mario style)', () => {
   });
 
   it('when the hold config is unset, takeoff leaves jumpSustain absent', () => {
-    const fixed: SimConfig = {
-      ...DEFAULT_CONFIG,
-      jumpHoldMaxTime: undefined,
-      jumpHoldGravityScale: undefined,
-    };
+    // Omit the hold keys entirely (exactOptionalPropertyTypes forbids `undefined`).
+    const { jumpHoldMaxTime: _m, jumpHoldGravityScale: _s, ...rest } = DEFAULT_CONFIG;
+    const fixed: SimConfig = rest;
     const w = step(createWorld(fixed, 1), HOP, fixed);
     expect(w.board.jumpSustain).toBeUndefined();
     // And holding has no effect without the config — apex equals the quick hop.

@@ -42,6 +42,7 @@
  */
 
 import type {
+  BoardState,
   InputIntent,
   Obstacle,
   SimConfig,
@@ -229,7 +230,13 @@ export function step(
     }
   }
 
-  const board = { y, vy, grounded, rotation, trick, jumpSustain };
+  // Only carry `jumpSustain` when it has a value — under
+  // `exactOptionalPropertyTypes` an optional field must be absent rather than
+  // explicitly `undefined`, and an absent field keeps legacy worlds byte-identical.
+  const board: BoardState =
+    jumpSustain === undefined
+      ? { y, vy, grounded, rotation, trick }
+      : { y, vy, grounded, rotation, trick, jumpSustain };
 
   // ── Spawner (seeded, weighted) ──
   let nextSpawnIn = world.nextSpawnIn - advance;

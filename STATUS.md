@@ -52,11 +52,12 @@
   HUD/start/game-over, high-score; + Architect runtime smoke.
 
 ## Last known-green gate counts
-- Lane-mode wave (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
-  · core **73** · render-canvas **31** · web **64** = **168** tests.
-- Runtime smoke: ✅ game + /preview (theme preset + Lanes mode A/B), zero console/page errors.
-- `SimConfig.mode` 'classic'|'lanes' (additive); lanes = vertical Temple-Run-like
-  dodge, exercised via the `/preview` game-mode toggle. Shipped game stays 'classic'.
+- Polish wave (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
+  · core **73** · render-canvas **33** · web **73** = **179** tests.
+- Runtime smoke: ✅ game (typed-name high score, top-5, 1.5× zoom) + /preview
+  (zoom + lead-distance knobs), zero console/page errors.
+- High score: free-text name (≤12) + top-5. Camera ZOOM 1.5 (whole scene incl.
+  background); zoom + spawnAhead are live `/preview` knobs.
 
 ## Active constraints
 See `CLAUDE.md` §constraints. Enforced by eslint arch-guard + `lint:content` +

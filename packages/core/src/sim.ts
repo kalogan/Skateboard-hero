@@ -28,9 +28,11 @@
  *  - `input.ollie` while grounded imparts `config.ollieImpulse` upward velocity.
  *    Gravity integrates the arc; the board lands when `y` returns to 0 (clamped).
  *  - Ollie is IGNORED mid-air (no double-jump) — by design.
- *  - On each ollie the sim deterministically PICKS A NAMED TRICK from the
- *    catalog (`config.tricks`, weighted via `world.rng`) and stores it on
- *    `board.trick`. The pick happens once, on take-off — never re-rolled mid-air.
+ *  - On each ollie the sim selects a NAMED TRICK from the catalog by the
+ *    player's GESTURE (`input.gesture`, defaulting to `'tap'` = ollie) and
+ *    stores it on `board.trick`. Selection is input-driven and consumes NO RNG.
+ *    The pick happens once, on take-off; mid-air a `'doubleTap'` gesture may
+ *    upgrade it once to the double-tap trick (heelflip) — otherwise unchanged.
  *  - A "trick" is one clean airborne hop that lands without bailing: each time
  *    the board lands from the air it awards THAT trick's `points` (added to
  *    `trickScore`) and increments `tricks`. If the landing frame bails, no points
@@ -46,10 +48,28 @@ import type {
   TrickId,
   WorldState,
 } from './types.js';
+import type { TrickGesture } from './types.js';
 import { seedRng, nextRange, nextWeightedIndex } from './rng.js';
 
 /** Full radians of board spin imparted per air-second (cosmetic). */
 const SPIN_PER_SECOND = Math.PI * 2;
+
+/**
+ * Resolve a gesture to a catalog trick id. The player's gesture chooses the
+ * trick deterministically (no RNG): the catalog entry whose `gesture` matches.
+ * A flick direction with no matching trick falls back to the `'tap'` (ollie)
+ * trick so an unmapped direction never produces an unselectable hop.
+ */
+function trickIdForGesture(
+  config: SimConfig,
+  gesture: TrickGesture,
+): TrickId {
+  const match = config.tricks.find((t) => t.gesture === gesture);
+  if (match) return match.id;
+  const tap = config.tricks.find((t) => t.gesture === 'tap');
+  // Catalog is guaranteed non-empty; prefer the tap trick, else the first entry.
+  return (tap ?? config.tricks[0]!).id;
+}
 
 /**
  * Build the initial, deterministic world for a fresh run.
@@ -128,22 +148,27 @@ export function step(
   const distance = world.distance + advance;
   const time = world.time + dt;
 
-  // RNG threaded sequentially through the whole step: trick pick (on take-off)
-  // first, then the spawner's weighted-pick + gap rolls.
+  // RNG threaded sequentially through the whole step: trick selection is now
+  // INPUT-DRIVEN (the player's gesture chooses the trick) and consumes NO RNG —
+  // the only RNG draws are the spawner's weighted-pick + gap rolls.
   let rng = world.rng;
 
   // ── Board physics (ollie arc) ──
   let { y, vy, grounded, rotation, trick } = world.board;
 
-  // Ollie only fires from the ground (no double-jump). On take-off, pick the
-  // trick for this hop ONCE — deterministically, weighted by the catalog.
+  // Ollie only fires from the ground (no double-jump). On take-off, select the
+  // trick for this hop from the player's gesture (no RNG): the catalog entry
+  // matching `input.gesture`, defaulting to the `'tap'` trick (ollie) when the
+  // gesture is omitted or flicks a direction no trick maps to.
   if (input.ollie && grounded) {
     vy = config.ollieImpulse;
     grounded = false;
-    const trickWeights = config.tricks.map((t) => t.weight);
-    const [trickIdx, rngAfterTrick] = nextWeightedIndex(rng, trickWeights);
-    rng = rngAfterTrick;
-    trick = config.tricks[trickIdx]!.id;
+    trick = trickIdForGesture(config, input.gesture ?? 'tap');
+  } else if (!grounded && input.gesture === 'doubleTap') {
+    // Mid-air double-tap upgrades the in-progress trick to the `'doubleTap'`
+    // trick (heelflip) — a single upgrade; selection by gesture won't thrash
+    // because the same gesture resolves to the same trick.
+    trick = trickIdForGesture(config, 'doubleTap');
   }
 
   let landedTrickId: TrickId | null = null;

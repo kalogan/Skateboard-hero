@@ -10,5 +10,15 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: true,
+    // Two entries: the product (`index.html`) and the dev-only preview harness
+    // (`preview.html`). Both build, so `dist/preview.html` is served at
+    // `/preview.html` (the Architect adds the `/preview` rewrite). The harness
+    // shell + dev CSS live only behind this second entry — never the product.
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        preview: 'preview.html',
+      },
+    },
   },
 });

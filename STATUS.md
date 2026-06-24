@@ -4,10 +4,20 @@
 > (or a different agent) should be able to resume from this file alone.
 
 ## Now
-- **MVP vertical slice COMPLETE** ✅ — gate green + runtime-smoke green
-  (start→play→bail→retry, no console errors). Playable: `pnpm dev`.
+- **Feature wave COMPLETE** ✅ — SFX + ambient audio, scored named tricks, and a
+  local top-10 leaderboard, all integrated. Gate green (93 tests) + runtime-smoke
+  green (start→play→bail→initials→retry, no console errors). Playable: `pnpm dev`.
 
-## Done
+## Done (feature wave)
+- **Audio** (`apps/web/src/audio/**`): procedural Web Audio — ollie/land/trick/bail
+  SFX + ambient bed, mute toggle, injectable context. Wired into the loop by event.
+- **Tricks** (`packages/core` + `render-canvas`): deterministic per-ollie trick
+  selection, per-trick scoring (ollie 100 → 360-shuv 400), distinct visuals,
+  golden fixture regenerated.
+- **Leaderboard** (`apps/web/src/leaderboard.ts` + `ui/**`): versioned local top-10
+  with touch initials entry; replaces the old single-best `storage.ts` (removed).
+
+## Done (earlier)
 - **Wave C / Slice 3 — App assembly:** ✅ Architect-built + verified. One-button
   input (tap/Space → ollie), pure fixed-timestep accumulator loop, phase machine
   (start→playing→over), DOM HUD, versioned localStorage high-score, restart.
@@ -28,9 +38,9 @@
   HUD/start/game-over, high-score; + Architect runtime smoke.
 
 ## Last known-green gate counts
-- MVP (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
-  · core **32** · render-canvas **11** · web **9** = **52** tests.
-- Runtime smoke: ✅ start→play→bail→retry, zero console/page errors.
+- Feature wave (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
+  · core **37** · render-canvas **14** · web **42** = **93** tests.
+- Runtime smoke: ✅ start→play→bail→initials→retry, zero console/page errors.
 
 ## Active constraints
 See `CLAUDE.md` §constraints. Enforced by eslint arch-guard + `lint:content` +

@@ -45,9 +45,12 @@ canvas {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
   left: 0;
-  right: 0;
+  /* leave the top-right clear for the mute button */
+  right: 64px;
   display: flex;
-  justify-content: space-between;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 12px;
   padding: 0 18px;
   font-variant-numeric: tabular-nums;
 }
@@ -61,7 +64,6 @@ canvas {
 .hud-best {
   font-size: clamp(13px, 3.5vw, 18px);
   opacity: 0.75;
-  align-self: center;
 }
 
 .overlay {
@@ -99,4 +101,57 @@ canvas {
   margin: 8px 0 0;
   opacity: 0.7;
   font-size: clamp(13px, 4vw, 18px);
+}
+
+/* ── Leaderboard / game-over overlay (the panel itself is styled by ui/leaderboard.css) ── */
+.lb-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px;
+  background: rgba(8, 8, 16, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.lb-overlay[hidden] {
+  display: none;
+}
+
+.lb-again {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 14px 28px;
+  font-size: clamp(15px, 4.5vw, 19px);
+  font-weight: 700;
+  color: #10101a;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.lb-again[hidden] {
+  display: none;
+}
+
+/* ── Mute toggle ── */
+.mute-btn {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  appearance: none;
+  border: 0;
+  border-radius: 50%;
+  font-size: 20px;
+  background: rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  z-index: 10;
 }

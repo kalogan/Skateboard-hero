@@ -1,10 +1,10 @@
 /**
- * App entry (Slice 3) — assembles the vertical slice.
+ * App entry — assembles the game and wires the feature layers.
  *
- * Wires the input layer, a fixed-timestep rAF loop driving the authoritative
- * core `step()`, the cosmetic renderer, the HUD, and versioned high-score
- * persistence. A small phase machine (start → playing → over) decides what a
- * tap means; the sim itself stays untouched and authoritative.
+ * Fixed-timestep rAF loop drives the authoritative core `step()`; the renderer,
+ * HUD, procedural audio, and local leaderboard are all cosmetic/optimistic on
+ * top. A phase machine (start → playing → over) decides what a tap means. The
+ * sim stays untouched and authoritative.
  */
 
 import './style.css';
@@ -13,7 +13,9 @@ import { createRenderer } from '@skate/render-canvas';
 import { advance } from './loop.js';
 import { createInput } from './input.js';
 import { createHud, type Phase } from './hud.js';
-import { loadBest, saveBest } from './storage.js';
+import { createGameAudio } from './audio/index.js';
+import { loadLeaderboard, qualifies, submitScore } from './leaderboard.js';
+import { createLeaderboardPanel } from './ui/leaderboard.js';
 
 const config = DEFAULT_CONFIG;
 
@@ -40,19 +42,52 @@ const renderer = createRenderer(ctx, {
 });
 
 const hud = createHud(root);
+const audio = createGameAudio();
+
+// ── Leaderboard overlay (the game-over screen). Swallows taps so initials
+//    entry doesn't trigger the global tap-to-retry; an explicit "Play again"
+//    button restarts. ──
+const lbOverlay = document.createElement('div');
+lbOverlay.className = 'lb-overlay';
+lbOverlay.hidden = true;
+lbOverlay.addEventListener('pointerdown', (e) => e.stopPropagation());
+root.appendChild(lbOverlay);
+const panel = createLeaderboardPanel(lbOverlay);
+const playAgainBtn = document.createElement('button');
+playAgainBtn.className = 'lb-again';
+playAgainBtn.textContent = 'Play again';
+playAgainBtn.hidden = true;
+playAgainBtn.addEventListener('click', startRun);
+lbOverlay.appendChild(playAgainBtn);
+
+// ── Mute toggle (top-right). Stops the tap from also driving the game. ──
+const muteBtn = document.createElement('button');
+muteBtn.className = 'mute-btn';
+muteBtn.setAttribute('aria-label', 'toggle sound');
+muteBtn.textContent = '🔊';
+muteBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+muteBtn.addEventListener('click', () => {
+  const muted = !audio.isMuted();
+  audio.setMuted(muted);
+  muteBtn.textContent = muted ? '🔇' : '🔊';
+});
+root.appendChild(muteBtn);
 
 window.addEventListener('resize', () => {
   fit();
   renderer.resize(canvas.width, canvas.height);
 });
 
+const topScore = (): number => loadLeaderboard(window.localStorage)[0]?.score ?? 0;
+
 // ── Game state (app-level) ──
 let phase: Phase = 'start';
 let world: WorldState = createWorld(config, freshSeed());
-let best = loadBest(window.localStorage);
+let best = topScore();
 let carryMs = 0;
 let lastMs = performance.now();
 let pendingOllie = false;
+let prevGrounded = true;
 
 function freshSeed(): number {
   // Seeding is an app concern (the core never reads wall-clock). Vary per run.
@@ -64,15 +99,39 @@ function startRun(): void {
   carryMs = 0;
   lastMs = performance.now();
   pendingOllie = false;
+  prevGrounded = world.board.grounded;
+  lbOverlay.hidden = true;
+  playAgainBtn.hidden = true;
   phase = 'playing';
   hud.setPhase('playing', 0, best);
+  audio.startAmbient();
+}
+
+/** End-of-run: drive the leaderboard (qualify → enter initials → board). */
+function endRun(score: number): void {
+  lbOverlay.hidden = false;
+  if (qualifies(window.localStorage, score)) {
+    playAgainBtn.hidden = true;
+    panel.promptEntry(score, (name) => {
+      const board = submitScore(window.localStorage, name, score);
+      best = topScore();
+      const highlightIndex = board.findIndex((e) => e.score === score);
+      panel.showBoard(board, highlightIndex >= 0 ? { highlightIndex } : undefined);
+      playAgainBtn.hidden = false;
+    });
+  } else {
+    panel.showBoard(loadLeaderboard(window.localStorage));
+    playAgainBtn.hidden = false;
+  }
 }
 
 function onTap(): void {
+  audio.unlock();
   if (phase === 'playing') {
     pendingOllie = true;
+  } else if (phase === 'over') {
+    // The leaderboard overlay handles its own taps (initials / Play again).
   } else {
-    // start screen or game-over → (re)start a run.
     startRun();
   }
 }
@@ -90,10 +149,22 @@ function frame(): void {
     carryMs = result.carryMs;
     pendingOllie = false;
 
+    // SFX from state transitions (frame granularity is plenty at 60fps).
+    const grounded = world.board.grounded;
+    if (prevGrounded && !grounded) {
+      audio.ollie();
+      if (world.board.trick) audio.trick(world.board.trick);
+    } else if (!prevGrounded && grounded && world.status === 'rolling') {
+      audio.land();
+    }
+    prevGrounded = grounded;
+
     if (world.status === 'bailed') {
-      best = saveBest(window.localStorage, world.score);
+      audio.bail();
+      audio.stopAmbient();
       phase = 'over';
       hud.setPhase('over', world.score, best);
+      endRun(world.score);
     }
   }
 
@@ -110,5 +181,7 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     disposeInput();
     hud.dispose();
+    panel.dispose();
+    audio.stopAmbient();
   });
 }

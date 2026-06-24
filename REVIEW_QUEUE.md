@@ -4,6 +4,14 @@ Taste / feel / wording items surfaced instead of blocking (pipeline §G). The
 Director drains this on their schedule; none of it blocks the gate.
 
 ## Open
+- **Sound design (placeholder):** ollie/land/trick/bail SFX frequencies+envelopes
+  and the ambient bed (drone pitches, noise character, fades) are first-pass
+  synth guesses. Per-trick audio is a pitch-hash, not a curated mapping.
+- **Trick point balance + visuals:** point values (100/150/250/250/400) and weights
+  are first guesses; kickflip vs heelflip differ only by roll-tilt sign (subtle).
+  Candidates for a feel pass + richer art.
+- **Leaderboard panel look/placement:** dark card + steppers; centering/backdrop is
+  the integration's (currently a blurred full-screen overlay). Director's call.
 - **One-button verb (Architect decision, confirm or redirect):** the single
   input is **tap/Space → ollie**; obstacles are all jumpable and skill is timing.
   Lane-switching and ducking were deferred. Change of heart? Flag it.

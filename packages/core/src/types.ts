@@ -145,6 +145,15 @@ export interface BoardState {
    * audio read this to draw/announce the trick; scoring reads its `points`.
    */
   readonly trick: TrickId | null;
+  /**
+   * Variable-jump (Super-Mario style) sustain window remaining, in seconds.
+   * Set to `config.jumpHoldMaxTime` on takeoff; while `InputIntent.jumpHeld` is
+   * true and the board is still ascending and this is > 0, gravity is reduced and
+   * this decrements by `dt`. Absent/`undefined` means no float (legacy fixed
+   * hop) — when the hold config is unset, takeoff leaves this absent so worlds
+   * that never use the variable jump are byte-identical to before.
+   */
+  readonly jumpSustain?: number;
 }
 
 /** A single tick's worth of player intent. */

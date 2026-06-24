@@ -171,28 +171,50 @@ export function step(
   // the only RNG draws are the spawner's weighted-pick + gap rolls.
   let rng = world.rng;
 
-  // ── Board physics (ollie arc) ──
-  let { y, vy, grounded, rotation, trick } = world.board;
+  // ── Board physics (ollie arc + variable jump) ──
+  let { y, vy, grounded, rotation, trick, jumpSustain } = world.board;
 
   // Ollie only fires from the ground (no double-jump). On take-off, select the
   // trick for this hop from the player's gesture (no RNG): the catalog entry
   // matching `input.gesture`, defaulting to the `'tap'` trick (ollie) when the
-  // gesture is omitted or flicks a direction no trick maps to.
+  // gesture is omitted or flicks a direction no trick maps to. Takeoff also
+  // opens the variable-jump sustain window (`jumpHoldMaxTime`), if configured.
   if (input.ollie && grounded) {
     vy = config.ollieImpulse;
     grounded = false;
     trick = trickIdForGesture(config, input.gesture ?? 'tap');
-  } else if (!grounded && input.gesture === 'doubleTap') {
-    // Mid-air double-tap upgrades the in-progress trick to the `'doubleTap'`
-    // trick (heelflip) — a single upgrade; selection by gesture won't thrash
-    // because the same gesture resolves to the same trick.
-    trick = trickIdForGesture(config, 'doubleTap');
+    // Only arm the float when the hold config is present; otherwise leave the
+    // field ABSENT so a fixed-hop config behaves exactly as before (and worlds
+    // that never set `jumpHeld` stay byte-identical — see the golden fixture).
+    jumpSustain = config.jumpHoldMaxTime;
+  } else if (!grounded && input.gesture != null) {
+    // Any mid-air gesture (re)selects the trick from the catalog — directional →
+    // its trick, `doubleTap` → heelflip, `tap` → ollie. This lets the app take
+    // off plain on press and apply the flicked trick when it resolves on release.
+    // Idempotent: the same gesture resolves to the same trick, so it won't thrash.
+    trick = trickIdForGesture(config, input.gesture);
   }
 
   let landedTrickId: TrickId | null = null;
   if (!grounded) {
+    // Variable jump (Super-Mario style): while the button is HELD, the board is
+    // still ASCENDING (vy > 0), and the sustain window has time left, integrate
+    // with REDUCED gravity (a longer hold floats higher, capped by the window).
+    // Releasing, starting to descend, or exhausting the window restores full
+    // gravity → the board falls normally. When the hold config is unset
+    // (`jumpSustain` absent) this branch never takes and the arc is the legacy
+    // fixed hop.
+    const scale = config.jumpHoldGravityScale;
+    const floating =
+      input.jumpHeld === true &&
+      vy > 0 &&
+      jumpSustain !== undefined &&
+      jumpSustain > 0 &&
+      scale !== undefined;
+    const gravity = floating ? config.gravity * scale! : config.gravity;
+    if (floating) jumpSustain = jumpSustain! - dt;
     // Integrate the arc; gravity is negative (pulls toward ground).
-    vy = vy + config.gravity * dt;
+    vy = vy + gravity * dt;
     y = y + vy * dt;
     rotation = rotation + SPIN_PER_SECOND * dt;
     if (y <= config.groundY) {
@@ -203,10 +225,11 @@ export function step(
       rotation = 0;
       landedTrickId = trick;
       trick = null;
+      jumpSustain = undefined;
     }
   }
 
-  const board = { y, vy, grounded, rotation, trick };
+  const board = { y, vy, grounded, rotation, trick, jumpSustain };
 
   // ── Spawner (seeded, weighted) ──
   let nextSpawnIn = world.nextSpawnIn - advance;

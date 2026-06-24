@@ -38,6 +38,12 @@ export interface PreviewKnobs {
   readonly enemySize: number;
   /** Density: scales the spawn-gap window (smaller gap = denser). 1 = default. */
   readonly enemyDensity: number;
+  /**
+   * Lead distance (world units ahead of the board) at which obstacles ENTER.
+   * Drives `SimConfig.spawnAhead` directly: bigger = props appear sooner /
+   * farther right (more reaction time); smaller = they appear closer.
+   */
+  readonly spawnAhead: number;
   // ── Points ──
   /** Per-trick point overrides, keyed by trick id. Absent = use the default. */
   readonly trickPoints: Readonly<Record<string, number>>;
@@ -61,6 +67,14 @@ export interface PreviewKnobs {
 /** Identity seed (doc §E): reproduces the exact on-disk/production run. */
 export const IDENTITY_SEED = 0;
 
+/**
+ * Default obstacle lead distance for the harness. `DEFAULT_CONFIG` leaves
+ * `spawnAhead` unset (so the golden fixture stays at the legacy rolled-gap
+ * behavior), so the harness picks an explicit, tunable lead — just beyond the
+ * typical visible width — as its default.
+ */
+export const DEFAULT_SPAWN_AHEAD = DEFAULT_CONFIG.spawnAhead ?? 700;
+
 /** Default knob values, read straight from the production `DEFAULT_CONFIG`. */
 export function defaultKnobs(): PreviewKnobs {
   const trickPoints: Record<string, number> = {};
@@ -73,6 +87,7 @@ export function defaultKnobs(): PreviewKnobs {
     gravity: DEFAULT_CONFIG.gravity,
     enemySize: 1,
     enemyDensity: 1,
+    spawnAhead: DEFAULT_SPAWN_AHEAD,
     trickPoints,
     // Identity defaults: read straight from the production DEFAULT_CONFIG, so
     // `mode === 'classic'` reproduces the shipped model untouched.
@@ -127,6 +142,9 @@ export function buildConfig(knobs: PreviewKnobs): SimConfig {
     gravity: knobs.gravity,
     spawnGapMin,
     spawnGapMax,
+    // Lead distance at which obstacles enter; kept >= 1 world unit so a degenerate
+    // knob never collapses the spawn window. Drives the REAL sim's spawnAhead.
+    spawnAhead: Math.max(1, Math.round(knobs.spawnAhead)),
     obstacles,
     tricks,
     // Game-mode A/B. The lane knobs are always carried (harmless in classic;

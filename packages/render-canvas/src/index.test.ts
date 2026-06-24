@@ -17,7 +17,12 @@ import type {
   TrickId,
   WorldState,
 } from '@skate/core';
-import { createRenderer, type RendererOptions } from './index.js';
+import {
+  createRenderer,
+  DEFAULT_THEME,
+  type RendererOptions,
+  type RenderTheme,
+} from './index.js';
 
 interface Call {
   readonly name: string;
@@ -324,6 +329,69 @@ describe('createRenderer', () => {
     const snapshot = JSON.stringify(world);
     r.draw(world);
     expect(JSON.stringify(world)).toBe(snapshot);
+  });
+
+  it('honors a custom palette: the themed ground color is used for a fill', () => {
+    // Record every fillStyle ASSIGNMENT so we can assert a themed color reaches
+    // the canvas. The base stub stores fillStyle as a plain field; a Proxy
+    // observes each set without changing the stub's shape (an accessor subclass
+    // over a class field is unreliable under useDefineForClassFields).
+    const styledCtx = (): {
+      ctx: CanvasRenderingContext2D;
+      styles: (string | CanvasGradient)[];
+    } => {
+      const styles: (string | CanvasGradient)[] = [];
+      const proxy = new Proxy(new StubContext(), {
+        set(target, prop, value): boolean {
+          if (prop === 'fillStyle') styles.push(value as string | CanvasGradient);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (target as any)[prop] = value;
+          return true;
+        },
+      });
+      return { ctx: proxy as unknown as CanvasRenderingContext2D, styles };
+    };
+
+    const groundColor = '#abcdef';
+    const theme: RenderTheme = {
+      ...DEFAULT_THEME,
+      palette: { ...DEFAULT_THEME.palette, ground: groundColor },
+    };
+    const custom = styledCtx();
+    createRenderer(custom.ctx, { ...OPTS, theme }).draw(makeWorld());
+    expect(custom.styles).toContain(groundColor);
+
+    // And the default theme must NOT emit the custom color (proves it's wired).
+    const def = styledCtx();
+    createRenderer(def.ctx, OPTS).draw(makeWorld());
+    expect(def.styles).not.toContain(groundColor);
+  });
+
+  it('honors a custom groundLineRatio: the ground line moves', () => {
+    // Lower ratio → ground line higher on screen (smaller y) → board anchored
+    // higher. The board translate-y tracks the ground line for a grounded board.
+    const lowStub = new StubContext();
+    const highStub = new StubContext();
+    const lowTheme: RenderTheme = { ...DEFAULT_THEME, groundLineRatio: 0.5 };
+    const highTheme: RenderTheme = { ...DEFAULT_THEME, groundLineRatio: 0.9 };
+    createRenderer(asCtx(lowStub), { ...OPTS, theme: lowTheme }).draw(
+      makeWorld({ board: makeBoard({ y: 0 }) }),
+    );
+    createRenderer(asCtx(highStub), { ...OPTS, theme: highTheme }).draw(
+      makeWorld({ board: makeBoard({ y: 0 }) }),
+    );
+    expect(boardTranslateYFrom(lowStub)).toBeLessThan(
+      boardTranslateYFrom(highStub),
+    );
+    // The default (0.78) sits between the two custom ratios.
+    const defStub = new StubContext();
+    createRenderer(asCtx(defStub), OPTS).draw(makeWorld({ board: makeBoard({ y: 0 }) }));
+    expect(boardTranslateYFrom(defStub)).toBeGreaterThan(
+      boardTranslateYFrom(lowStub),
+    );
+    expect(boardTranslateYFrom(defStub)).toBeLessThan(
+      boardTranslateYFrom(highStub),
+    );
   });
 
   it('resize updates layout so the ground line moves', () => {

@@ -30,6 +30,7 @@ import type {
   WorldState,
 } from '@skate/core';
 import type { RenderTheme } from './theme.js';
+import { DEFAULT_THEME } from './theme.js';
 
 export type { RenderTheme, RenderPalette, ParallaxTheme } from './theme.js';
 export { DEFAULT_THEME } from './theme.js';
@@ -50,31 +51,6 @@ export interface Renderer {
   resize(width: number, height: number): void;
 }
 
-/**
- * Palette. Placeholder art direction — flagged for the Director to refine
- * (REVIEW_QUEUE: palette / juice / real sprites).
- */
-const PALETTE = {
-  skyTop: '#1b2a4a',
-  skyBottom: '#3a5a86',
-  hillsFar: '#2c3f63',
-  hillsNear: '#24496b',
-  buildings: '#1a2740',
-  ground: '#2a2320',
-  groundStripe: '#3a322c',
-  groundEdge: '#6b5d4f',
-  board: '#e8a13a',
-  boardGrip: '#211b16',
-  wheel: '#d8d8e0',
-  rider: '#e8e8f0',
-  riderAccent: '#ff5a7a',
-  obstacle: '#c8d0dc',
-  obstacleShadow: '#7c8696',
-  cone: '#ff7a3c',
-  coneStripe: '#ffe0c8',
-  bailTint: 'rgba(20, 8, 8, 0.45)',
-} as const;
-
 /** Internal, derived layout. Recomputed on construct + resize. */
 interface Layout {
   width: number;
@@ -83,12 +59,16 @@ interface Layout {
   groundLineY: number;
 }
 
-function computeLayout(width: number, height: number): Layout {
+function computeLayout(
+  width: number,
+  height: number,
+  groundLineRatio: number,
+): Layout {
   return {
     width,
     height,
     // Ground sits ~22% up from the bottom, leaving room for the board to land.
-    groundLineY: Math.round(height * 0.78),
+    groundLineY: Math.round(height * groundLineRatio),
   };
 }
 
@@ -97,7 +77,8 @@ export function createRenderer(
   options: RendererOptions,
 ): Renderer {
   const { config } = options;
-  let layout = computeLayout(options.width, options.height);
+  const theme = options.theme ?? DEFAULT_THEME;
+  let layout = computeLayout(options.width, options.height, theme.groundLineRatio);
 
   // Trick catalog lookup (cosmetic only — the renderer reads visual params but
   // never the sim's authoritative scoring).
@@ -114,15 +95,16 @@ export function createRenderer(
 
     // Sky gradient.
     const sky = ctx.createLinearGradient(0, 0, 0, groundLineY);
-    sky.addColorStop(0, PALETTE.skyTop);
-    sky.addColorStop(1, PALETTE.skyBottom);
+    sky.addColorStop(0, theme.palette.skyTop);
+    sky.addColorStop(1, theme.palette.skyBottom);
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, width, groundLineY);
 
     // Parallax skyline — far hills (slowest) and a building strip (faster).
-    drawParallaxHills(world.distance * 0.04, groundLineY, height, PALETTE.hillsFar, 0.20);
-    drawParallaxHills(world.distance * 0.08, groundLineY, height, PALETTE.hillsNear, 0.13);
-    drawBuildings(world.distance * 0.16, groundLineY);
+    const { parallax } = theme;
+    drawParallaxHills(world.distance * parallax.farFactor, groundLineY, height, theme.palette.hillsFar, parallax.farAmplitude);
+    drawParallaxHills(world.distance * parallax.nearFactor, groundLineY, height, theme.palette.hillsNear, parallax.nearAmplitude);
+    drawBuildings(world.distance * parallax.buildingFactor, groundLineY);
   }
 
   /** A repeating row of rounded hills, offset by a parallax-scrolled phase. */
@@ -134,7 +116,7 @@ export function createRenderer(
     amplitudeFactor: number,
   ): void {
     const { width } = layout;
-    const span = 220;
+    const span = theme.parallax.hillSpan;
     const amp = height * amplitudeFactor;
     ctx.fillStyle = color;
     ctx.beginPath();
@@ -154,9 +136,9 @@ export function createRenderer(
   /** A scrolling block-skyline of buildings for closer parallax depth. */
   function drawBuildings(offset: number, baseY: number): void {
     const { width } = layout;
-    const span = 90;
+    const span = theme.parallax.buildingSpan;
     const phase = ((offset % span) + span) % span;
-    ctx.fillStyle = PALETTE.buildings;
+    ctx.fillStyle = theme.palette.buildings;
     for (let cx = -phase; cx < width; cx += span) {
       // Deterministic pseudo-height from the building's index, not RNG.
       const seed = Math.floor((cx + offset) / span);
@@ -170,17 +152,17 @@ export function createRenderer(
     const { width, height, groundLineY } = layout;
 
     // Solid surface below the ground line.
-    ctx.fillStyle = PALETTE.ground;
+    ctx.fillStyle = theme.palette.ground;
     ctx.fillRect(0, groundLineY, width, height - groundLineY);
 
     // Bright edge highlight along the ground line.
-    ctx.fillStyle = PALETTE.groundEdge;
+    ctx.fillStyle = theme.palette.groundEdge;
     ctx.fillRect(0, groundLineY - 2, width, 3);
 
     // Scrolling stripes derived from distance — the sense of speed.
-    const stripeSpan = 48;
+    const stripeSpan = theme.groundStripeSpan;
     const phase = ((world.distance % stripeSpan) + stripeSpan) % stripeSpan;
-    ctx.fillStyle = PALETTE.groundStripe;
+    ctx.fillStyle = theme.palette.groundStripe;
     for (let cx = -phase; cx < width; cx += stripeSpan) {
       ctx.fillRect(cx, groundLineY + 8, stripeSpan * 0.5, 4);
     }
@@ -196,7 +178,7 @@ export function createRenderer(
     ctx.globalAlpha = o.cleared ? 0.55 : 1;
 
     // Contact shadow on the ground.
-    ctx.fillStyle = PALETTE.obstacleShadow;
+    ctx.fillStyle = theme.palette.obstacleShadow;
     ctx.beginPath();
     ctx.ellipse(left + o.width / 2, baseScreenY + 4, o.width * 0.6, 4, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -204,20 +186,20 @@ export function createRenderer(
     switch (o.kind) {
       case 'cone': {
         // Triangular silhouette with a hazard stripe.
-        ctx.fillStyle = PALETTE.cone;
+        ctx.fillStyle = theme.palette.cone;
         ctx.beginPath();
         ctx.moveTo(left + o.width / 2, topScreenY);
         ctx.lineTo(left, baseScreenY);
         ctx.lineTo(left + o.width, baseScreenY);
         ctx.closePath();
         ctx.fill();
-        ctx.fillStyle = PALETTE.coneStripe;
+        ctx.fillStyle = theme.palette.coneStripe;
         ctx.fillRect(left + o.width * 0.18, baseScreenY - o.height * 0.45, o.width * 0.64, o.height * 0.16);
         break;
       }
       case 'crack': {
         // Low jagged gap in the ground.
-        ctx.fillStyle = PALETTE.obstacleShadow;
+        ctx.fillStyle = theme.palette.obstacleShadow;
         ctx.beginPath();
         ctx.moveTo(left, baseScreenY);
         ctx.lineTo(left + o.width * 0.3, baseScreenY - o.height);
@@ -230,24 +212,24 @@ export function createRenderer(
       }
       case 'rail': {
         // Angled grind rail on two posts.
-        ctx.fillStyle = PALETTE.obstacle;
+        ctx.fillStyle = theme.palette.obstacle;
         ctx.fillRect(left, topScreenY, o.width, Math.max(4, o.height * 0.18));
-        ctx.fillStyle = PALETTE.obstacleShadow;
+        ctx.fillStyle = theme.palette.obstacleShadow;
         ctx.fillRect(left + 4, topScreenY, 4, baseScreenY - topScreenY);
         ctx.fillRect(left + o.width - 8, topScreenY, 4, baseScreenY - topScreenY);
         break;
       }
       case 'bench': {
         // Box silhouette with a seat highlight.
-        ctx.fillStyle = PALETTE.obstacle;
+        ctx.fillStyle = theme.palette.obstacle;
         ctx.fillRect(left, topScreenY, o.width, baseScreenY - topScreenY);
-        ctx.fillStyle = PALETTE.obstacleShadow;
+        ctx.fillStyle = theme.palette.obstacleShadow;
         ctx.fillRect(left, topScreenY, o.width, Math.max(3, o.height * 0.18));
         break;
       }
       default: {
         // Defensive fallback: a plain box so unknown kinds still render.
-        ctx.fillStyle = PALETTE.obstacle;
+        ctx.fillStyle = theme.palette.obstacle;
         ctx.fillRect(left, topScreenY, o.width, baseScreenY - topScreenY);
       }
     }
@@ -322,14 +304,14 @@ export function createRenderer(
   function drawDeck(w: number, h: number, bailed: boolean): void {
     const deckH = h * 0.42;
     // Deck.
-    ctx.fillStyle = bailed ? '#8a6020' : PALETTE.board;
+    ctx.fillStyle = bailed ? '#8a6020' : theme.palette.board;
     roundRect(-w / 2, -deckH / 2, w, deckH, deckH / 2);
     ctx.fill();
     // Grip tape strip.
-    ctx.fillStyle = PALETTE.boardGrip;
+    ctx.fillStyle = theme.palette.boardGrip;
     ctx.fillRect(-w / 2 + 3, -deckH / 2, w - 6, Math.max(2, deckH * 0.25));
     // Wheels.
-    ctx.fillStyle = PALETTE.wheel;
+    ctx.fillStyle = theme.palette.wheel;
     const wheelR = h * 0.16;
     const wy = deckH / 2 + wheelR * 0.4;
     for (const wx of [-w / 2 + w * 0.22, w / 2 - w * 0.22]) {
@@ -344,7 +326,7 @@ export function createRenderer(
     const deckTop = -h * 0.21;
     const bodyH = h * 1.5;
     ctx.save();
-    ctx.fillStyle = bailed ? '#9a9aa6' : PALETTE.rider;
+    ctx.fillStyle = bailed ? '#9a9aa6' : theme.palette.rider;
     // Crouch lower when grounded; extend taller when airborne (tucked/popping).
     const lean = grounded ? 0 : -w * 0.12;
     const torsoH = grounded ? bodyH * 0.78 : bodyH;
@@ -352,10 +334,10 @@ export function createRenderer(
     ctx.fillRect(-w * 0.12 + lean, deckTop - torsoH * 0.5, w * 0.1, torsoH * 0.5);
     ctx.fillRect(w * 0.04 + lean, deckTop - torsoH * 0.5, w * 0.1, torsoH * 0.5);
     // Torso.
-    ctx.fillStyle = bailed ? '#7a7a86' : PALETTE.riderAccent;
+    ctx.fillStyle = bailed ? '#7a7a86' : theme.palette.riderAccent;
     ctx.fillRect(-w * 0.13 + lean, deckTop - torsoH, w * 0.26, torsoH * 0.55);
     // Head.
-    ctx.fillStyle = bailed ? '#9a9aa6' : PALETTE.rider;
+    ctx.fillStyle = bailed ? '#9a9aa6' : theme.palette.rider;
     ctx.beginPath();
     ctx.arc(lean, deckTop - torsoH - h * 0.18, h * 0.2, 0, Math.PI * 2);
     ctx.fill();
@@ -388,12 +370,12 @@ export function createRenderer(
 
       // Bail: desaturating crash tint over the whole frame (HUD text is Slice 3).
       if (world.status === 'bailed') {
-        ctx.fillStyle = PALETTE.bailTint;
+        ctx.fillStyle = theme.palette.bailTint;
         ctx.fillRect(0, 0, width, height);
       }
     },
     resize(w: number, h: number): void {
-      layout = computeLayout(w, h);
+      layout = computeLayout(w, h, theme.groundLineRatio);
     },
   };
 }

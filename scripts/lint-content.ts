@@ -14,10 +14,12 @@ import {
   type ObstacleKind,
   type TrickDef,
   type TrickFlipAxis,
+  type TrickGesture,
 } from '@skate/core';
 
 const VALID_KINDS: readonly ObstacleKind[] = ['cone', 'rail', 'crack', 'bench'];
 const VALID_FLIP_AXES: readonly TrickFlipAxis[] = ['none', 'kick', 'shuv'];
+const VALID_GESTURES: readonly TrickGesture[] = ['tap', 'up', 'down', 'left', 'right', 'doubleTap'];
 
 const errors: string[] = [];
 
@@ -51,11 +53,21 @@ for (const [i, def] of DEFAULT_OBSTACLES.entries()) {
 check(DEFAULT_TRICKS.length > 0, 'trick catalog must not be empty');
 
 const seenTrickIds = new Set<string>();
+const seenGestures = new Set<string>();
 for (const [i, def] of DEFAULT_TRICKS.entries()) {
   const where = `trick[${i}] (${def.id ?? '<no id>'})`;
   check(typeof def.id === 'string' && def.id.length > 0, `${where}: id must be a non-empty string`);
   check(!seenTrickIds.has(def.id), `${where}: duplicate id "${def.id}"`);
   seenTrickIds.add(def.id);
+  check(
+    VALID_GESTURES.includes(def.gesture),
+    `${where}: invalid gesture "${def.gesture}" (expected one of ${VALID_GESTURES.join(', ')})`,
+  );
+  check(
+    !seenGestures.has(def.gesture),
+    `${where}: gesture "${def.gesture}" already maps to another trick (must be unique)`,
+  );
+  seenGestures.add(def.gesture);
   check(typeof def.name === 'string' && def.name.length > 0, `${where}: name must be a non-empty string`);
   check(typeof def.points === 'number' && def.points > 0, `${where}: points must be > 0`);
   check(typeof def.weight === 'number' && def.weight > 0, `${where}: weight must be > 0`);

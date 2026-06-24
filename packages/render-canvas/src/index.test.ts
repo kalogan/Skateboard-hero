@@ -237,7 +237,7 @@ describe('createRenderer', () => {
   it('animates each trick distinctly (different ids → different draw calls)', () => {
     // Same airborne pose + rotation; only the trick id varies. Each catalog
     // trick should drive a distinguishable transform sequence.
-    const ids: TrickId[] = ['ollie', 'popshuv', 'kickflip', 'heelflip', 'shuv360'];
+    const ids: TrickId[] = ['ollie', 'popshuv', 'kickflip', 'heelflip', 'shuv360', 'treflip'];
     const transformsFor = (trick: TrickId): string => {
       const stub = new StubContext();
       createRenderer(asCtx(stub), OPTS).draw(
@@ -257,8 +257,25 @@ describe('createRenderer', () => {
     expect(new Set(signatures).size).toBe(ids.length);
   });
 
+  it('renders the Tre Flip as a combined flip + spin (both scaleX and scaleY)', () => {
+    // Tre Flip = kickflip (flipTurns) + 360 shuv (spinTurns): it must foreshorten
+    // BOTH width (yaw spin) and height (flip) — a richer transform than a trick
+    // that only spins (shuv360) or only flips (kickflip).
+    const stub = new StubContext();
+    createRenderer(asCtx(stub), OPTS).draw(
+      makeWorld({ board: makeBoard({ y: 90, grounded: false, rotation: 1.1, trick: 'treflip' }) }),
+    );
+    const scales = stub.named('scale');
+    // A width-foreshortening scale (sx != 1, sy == 1) AND a height-foreshortening
+    // scale (sx == 1, sy != 1) are both emitted.
+    const hasWidthScale = scales.some((c) => Math.abs(c.args[0]! - 1) > 1e-6 && Math.abs(c.args[1]! - 1) < 1e-6);
+    const hasHeightScale = scales.some((c) => Math.abs(c.args[1]! - 1) > 1e-6 && Math.abs(c.args[0]! - 1) < 1e-6);
+    expect(hasWidthScale).toBe(true);
+    expect(hasHeightScale).toBe(true);
+  });
+
   it('does not throw for any catalog trick while airborne', () => {
-    const ids: TrickId[] = ['ollie', 'popshuv', 'kickflip', 'heelflip', 'shuv360'];
+    const ids: TrickId[] = ['ollie', 'popshuv', 'kickflip', 'heelflip', 'shuv360', 'treflip'];
     const stub = new StubContext();
     const r = createRenderer(asCtx(stub), OPTS);
     for (const trick of ids) {

@@ -241,30 +241,89 @@ describe('spawner', () => {
   });
 });
 
-describe('trick selection (deterministic, per-trick scoring)', () => {
+describe('trick selection (gesture-driven, deterministic, per-trick scoring)', () => {
   const VALID_IDS = new Set(DEFAULT_CONFIG.tricks.map((t) => t.id));
 
-  it('picks a trick deterministically from a seed (same seed → same trick)', () => {
-    const a = step(createWorld(DEFAULT_CONFIG, 42), OLLIE, DEFAULT_CONFIG);
-    const b = step(createWorld(DEFAULT_CONFIG, 42), OLLIE, DEFAULT_CONFIG);
-    expect(a.board.trick).toBe(b.board.trick);
-    expect(VALID_IDS.has(a.board.trick!)).toBe(true);
-  });
-
-  it('different seeds can select different tricks (RNG actually drives it)', () => {
-    const picks = new Set<string>();
-    for (let seed = 0; seed < 50; seed++) {
-      const w = step(createWorld(DEFAULT_CONFIG, seed), OLLIE, DEFAULT_CONFIG);
-      picks.add(w.board.trick!);
+  /** Every gesture maps to exactly the catalog trick that declares it. */
+  it('selects the catalog trick whose gesture matches the takeoff flick', () => {
+    for (const def of DEFAULT_CONFIG.tricks) {
+      const w = step(
+        createWorld(DEFAULT_CONFIG, 42),
+        { ollie: true, gesture: def.gesture },
+        DEFAULT_CONFIG,
+      );
+      expect(w.board.trick).toBe(def.id);
+      expect(VALID_IDS.has(w.board.trick!)).toBe(true);
     }
-    expect(picks.size).toBeGreaterThan(1);
   });
 
-  it('does not re-roll the trick mid-air (no double-trick)', () => {
-    let w = step(createWorld(DEFAULT_CONFIG, 7), OLLIE, DEFAULT_CONFIG);
+  it("a plain ollie (no gesture / null) selects the 'tap' trick (ollie)", () => {
+    const tapTrick = DEFAULT_CONFIG.tricks.find((t) => t.gesture === 'tap')!;
+    const noGesture = step(createWorld(DEFAULT_CONFIG, 1), { ollie: true }, DEFAULT_CONFIG);
+    const nullGesture = step(
+      createWorld(DEFAULT_CONFIG, 1),
+      { ollie: true, gesture: null },
+      DEFAULT_CONFIG,
+    );
+    expect(noGesture.board.trick).toBe(tapTrick.id);
+    expect(nullGesture.board.trick).toBe(tapTrick.id);
+  });
+
+  it("the 'right' flick selects the Tre Flip", () => {
+    const w = step(
+      createWorld(DEFAULT_CONFIG, 7),
+      { ollie: true, gesture: 'right' },
+      DEFAULT_CONFIG,
+    );
+    expect(w.board.trick).toBe('treflip');
+  });
+
+  it('selection is deterministic and consumes NO RNG (rng unchanged by takeoff)', () => {
+    const base = createWorld(DEFAULT_CONFIG, 0xabc);
+    // A grounded ollie that does not spawn an obstacle leaves rng untouched.
+    const a = step(base, { ollie: true, gesture: 'left' }, DEFAULT_CONFIG);
+    const b = step(base, { ollie: true, gesture: 'left' }, DEFAULT_CONFIG);
+    expect(a.board.trick).toBe('kickflip');
+    expect(b.board.trick).toBe('kickflip');
+    expect(a).toEqual(b);
+    // The trick pick itself draws no RNG; only the spawner advances it. On the
+    // first step the spawner fires (nextSpawnIn starts at 0), so compare a
+    // gesture'd takeoff against a plain takeoff: same rng (selection is free).
+    const plain = step(base, { ollie: true }, DEFAULT_CONFIG);
+    expect(a.rng).toBe(plain.rng);
+  });
+
+  it('a flick direction with no matching trick falls back to the tap trick', () => {
+    // All four directions are mapped in the default catalog; prove the fallback
+    // with a stripped catalog that only has the tap trick.
+    const tapOnly: SimConfig = {
+      ...DEFAULT_CONFIG,
+      tricks: DEFAULT_CONFIG.tricks.filter((t) => t.gesture === 'tap'),
+    };
+    const w = step(createWorld(tapOnly, 3), { ollie: true, gesture: 'left' }, tapOnly);
+    expect(w.board.trick).toBe('ollie');
+  });
+
+  it("mid-air doubleTap upgrades the trick to the 'doubleTap' trick (heelflip)", () => {
+    const dtTrick = DEFAULT_CONFIG.tricks.find((t) => t.gesture === 'doubleTap')!;
+    // Take off with a plain ollie, then double-tap mid-air.
+    let w = step(createWorld(DEFAULT_CONFIG, 5), { ollie: true }, DEFAULT_CONFIG);
+    expect(w.board.trick).toBe('ollie');
+    expect(w.board.grounded).toBe(false);
+    w = step(w, { ollie: false, gesture: 'doubleTap' }, DEFAULT_CONFIG);
+    expect(w.board.trick).toBe(dtTrick.id);
+    expect(w.board.trick).toBe('heelflip');
+  });
+
+  it('does not re-roll / thrash the trick mid-air without a doubleTap', () => {
+    let w = step(
+      createWorld(DEFAULT_CONFIG, 7),
+      { ollie: true, gesture: 'up' },
+      DEFAULT_CONFIG,
+    );
     const chosen = w.board.trick;
-    expect(chosen).not.toBeNull();
-    // Hammer ollie every airborne frame; the trick must stay fixed until landing.
+    expect(chosen).toBe('shuv360');
+    // Hammer ollie (ignored mid-air) every airborne frame; trick stays fixed.
     for (let i = 0; i < 200; i++) {
       w = step(w, OLLIE, DEFAULT_CONFIG);
       if (w.board.grounded) break;
@@ -276,11 +335,15 @@ describe('trick selection (deterministic, per-trick scoring)', () => {
     expect(w.tricks).toBe(1);
   });
 
-  it('awards exactly the chosen trick’s catalog points on a clean land', () => {
-    // Drive several independent hops and verify each adds its trick’s points.
-    for (const seed of [1, 13, 99, 256, 1000]) {
-      let w = step(createWorld(DEFAULT_CONFIG, seed), OLLIE, DEFAULT_CONFIG);
-      const def = DEFAULT_CONFIG.tricks.find((t) => t.id === w.board.trick)!;
+  it('awards exactly the gesture-selected trick’s catalog points on a clean land', () => {
+    // Drive one independent hop per catalog trick and verify each adds its points.
+    for (const def of DEFAULT_CONFIG.tricks) {
+      let w = step(
+        createWorld(DEFAULT_CONFIG, 1),
+        { ollie: true, gesture: def.gesture },
+        DEFAULT_CONFIG,
+      );
+      expect(w.board.trick).toBe(def.id);
       const beforeTrickScore = w.trickScore;
       for (let i = 0; i < 200 && !w.board.grounded; i++) {
         w = step(w, NO_OLLIE, DEFAULT_CONFIG);

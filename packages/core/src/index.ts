@@ -16,6 +16,7 @@ export type {
   ObstacleDef,
   Obstacle,
   TrickFlipAxis,
+  TrickGesture,
   TrickId,
   TrickDef,
   BoardState,

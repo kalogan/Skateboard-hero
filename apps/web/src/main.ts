@@ -11,7 +11,7 @@ import './style.css';
 import { createWorld, DEFAULT_CONFIG, type WorldState } from '@skate/core';
 import { createRenderer } from '@skate/render-canvas';
 import { advance } from './loop.js';
-import { createInput } from './input.js';
+import { createInput, type TrickGesture } from './input.js';
 import { createHud, type Phase } from './hud.js';
 import { createGameAudio } from './audio/index.js';
 import { loadLeaderboard, qualifies, submitScore } from './leaderboard.js';
@@ -87,6 +87,7 @@ let best = topScore();
 let carryMs = 0;
 let lastMs = performance.now();
 let pendingOllie = false;
+let pendingGesture: TrickGesture | null = null;
 let prevGrounded = true;
 
 function freshSeed(): number {
@@ -99,6 +100,7 @@ function startRun(): void {
   carryMs = 0;
   lastMs = performance.now();
   pendingOllie = false;
+  pendingGesture = null;
   prevGrounded = world.board.grounded;
   lbOverlay.hidden = true;
   playAgainBtn.hidden = true;
@@ -125,13 +127,17 @@ function endRun(score: number): void {
   }
 }
 
-function onTap(): void {
+function onTap(gesture: TrickGesture): void {
   audio.unlock();
   if (phase === 'playing') {
     pendingOllie = true;
+    // Latest gesture wins for this frame; the sim ignores it when not airborne /
+    // when it maps to no trick, so carrying it is safe.
+    pendingGesture = gesture;
   } else if (phase === 'over') {
     // The leaderboard overlay handles its own taps (initials / Play again).
   } else {
+    // A start/retry tap: any gesture is fine, it just kicks off the run.
     startRun();
   }
 }
@@ -144,10 +150,14 @@ function frame(): void {
   lastMs = now;
 
   if (phase === 'playing') {
-    const result = advance(world, config, elapsed, carryMs, pendingOllie);
+    const result = advance(world, config, elapsed, carryMs, {
+      ollie: pendingOllie,
+      gesture: pendingGesture,
+    });
     world = result.world;
     carryMs = result.carryMs;
     pendingOllie = false;
+    pendingGesture = null;
 
     // SFX from state transitions (frame granularity is plenty at 60fps).
     const grounded = world.board.grounded;

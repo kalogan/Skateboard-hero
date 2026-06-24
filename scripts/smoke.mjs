@@ -113,14 +113,27 @@ try {
     console.warn('  (note: Play again not visible — skipped retry sub-check)');
   }
 
+  // ── Preview harness (/preview.html) — production-truthful config workbench ──
+  await page.goto(`${URL}preview.html`, { waitUntil: 'networkidle' });
+  const pvCanvas = await page.$('[data-testid="preview-canvas"]');
+  if (!pvCanvas) fail('preview harness: [data-testid="preview-canvas"] not mounted');
+  const flickLeft = page.locator('[data-gesture="left"]').first();
+  if (await flickLeft.isVisible().catch(() => false)) {
+    await flickLeft.click().catch(() => {});
+    await page.waitForTimeout(400);
+  } else {
+    console.warn('  (note: preview gesture button [data-gesture="left"] not found)');
+  }
+  await page.screenshot({ path: resolve(SHOTS, '4-preview.png') });
+
   if (consoleErrors.length) fail(`console errors: ${JSON.stringify(consoleErrors)}`);
   if (pageErrors.length) fail(`page errors: ${JSON.stringify(pageErrors)}`);
 
   if (process.exitCode) {
     console.error('Runtime smoke: ❌ (screenshots in scripts/.smoke)');
   } else {
-    console.log('Runtime smoke: ✅ start→play→bail→retry clean, no console/page errors.');
-    console.log(`  screenshots: ${SHOTS}/{1-start,2-playing,3-over}.png`);
+    console.log('Runtime smoke: ✅ game (start→play→bail→retry) + /preview, no console/page errors.');
+    console.log(`  screenshots: ${SHOTS}/{1-start,2-playing,3-over,4-preview}.png`);
   }
 } catch (e) {
   fail(e instanceof Error ? e.message : String(e));

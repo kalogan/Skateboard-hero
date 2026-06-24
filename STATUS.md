@@ -4,9 +4,23 @@
 > (or a different agent) should be able to resume from this file alone.
 
 ## Now
-- **Feature wave COMPLETE** ✅ — SFX + ambient audio, scored named tricks, and a
-  local top-10 leaderboard, all integrated. Gate green (93 tests) + runtime-smoke
-  green (start→play→bail→initials→retry, no console errors). Playable: `pnpm dev`.
+- **Gestures + Preview wave COMPLETE** ✅ — gesture-driven tricks (flick←/→/↑/↓ +
+  double-tap; new Tre Flip), softer ollie whoosh, and a `/preview` config harness.
+  Gate green (**108 tests**) + runtime-smoke green (game + /preview). `/preview`
+  routed on Vercel. Playable: `pnpm dev`; harness: `pnpm dev` → `/preview.html`.
+
+## Done (gestures + preview wave)
+- **Gesture tricks** (`core`+`render`): input-driven selection (tap→ollie,
+  ←kickflip, →Tre Flip[new,500], ↑360-shuv, ↓popshuv, double-tap→heelflip),
+  golden fixture regenerated; `TrickGesture` exported.
+- **Gesture input** (`apps/web`): touch flick + mouse-drag + arrows/WASD +
+  double-tap; `advance()` threads full `InputIntent`.
+- **Audio**: ollie re-voiced to a soft air whoosh.
+- **Preview harness** (`apps/web/src/preview/**`, `/preview`): production-truthful
+  workbench — live SimConfig knobs, seed, data-driven trick/gesture + SFX
+  triggers; art/parallax knobs honestly deferred (needs renderer theme seam).
+
+## Done (earlier waves)
 
 ## Done (feature wave)
 - **Audio** (`apps/web/src/audio/**`): procedural Web Audio — ollie/land/trick/bail
@@ -38,9 +52,9 @@
   HUD/start/game-over, high-score; + Architect runtime smoke.
 
 ## Last known-green gate counts
-- Feature wave (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
-  · core **37** · render-canvas **14** · web **42** = **93** tests.
-- Runtime smoke: ✅ start→play→bail→initials→retry, zero console/page errors.
+- Gestures+Preview wave (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
+  · core **41** · render-canvas **15** · web **52** = **108** tests.
+- Runtime smoke: ✅ game (start→play→bail→retry) + /preview, zero console/page errors.
 
 ## Active constraints
 See `CLAUDE.md` §constraints. Enforced by eslint arch-guard + `lint:content` +

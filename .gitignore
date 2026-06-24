@@ -8,3 +8,4 @@ coverage/
 /tmp/
 .eslintcache
 scripts/.smoke/
+dist-standalone/

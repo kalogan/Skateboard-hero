@@ -63,8 +63,9 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/*.config.*',
       'coverage/**',
-      // Optional Architect runtime-smoke tool (Node + Playwright), not shipped.
+      // Optional Node tooling scripts (smoke + standalone bundler), not shipped.
       'scripts/smoke.mjs',
+      'scripts/build-standalone.mjs',
     ],
   },
   js.configs.recommended,

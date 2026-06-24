@@ -104,7 +104,9 @@ let world: WorldState = createWorld(config, freshSeed());
 let best = topScore();
 let carryMs = 0;
 let lastMs = performance.now();
-let pendingOllie = false;
+// The takeoff edge from a press, consumed (and cleared) on the next frame.
+let pendingPress = false;
+// The trick gesture from a release, consumed on the next frame.
 let pendingGesture: TrickGesture | null = null;
 let prevGrounded = true;
 
@@ -117,7 +119,7 @@ function startRun(): void {
   world = createWorld(config, freshSeed());
   carryMs = 0;
   lastMs = performance.now();
-  pendingOllie = false;
+  pendingPress = false;
   pendingGesture = null;
   prevGrounded = world.board.grounded;
   lbOverlay.hidden = true;
@@ -145,22 +147,31 @@ function endRun(score: number): void {
   }
 }
 
-function onTap(gesture: TrickGesture): void {
+// A press is the takeoff edge: start the run, or queue an ollie. The hold state
+// (jump button still down) is read live from the input handle each frame.
+function onPress(): void {
   audio.unlock();
   if (phase === 'playing') {
-    pendingOllie = true;
-    // Latest gesture wins for this frame; the sim ignores it when not airborne /
-    // when it maps to no trick, so carrying it is safe.
-    pendingGesture = gesture;
+    pendingPress = true;
   } else if (phase === 'over') {
     // The leaderboard overlay handles its own taps (initials / Play again).
   } else {
-    // A start/retry tap: any gesture is fine, it just kicks off the run.
+    // A start/retry press kicks off the run.
     startRun();
   }
 }
 
-const disposeInput = createInput(window, onTap);
+// A release resolves the trick gesture; the core applies it mid-air. Latest
+// gesture wins for the frame; the sim ignores it when grounded / when it maps to
+// no trick, so carrying it is safe.
+function onRelease(gesture: TrickGesture): void {
+  if (phase === 'playing') {
+    pendingGesture = gesture;
+  }
+}
+
+const input = createInput(window, { onPress, onRelease });
+const disposeInput = input.dispose;
 
 function frame(): void {
   const now = performance.now();
@@ -169,12 +180,13 @@ function frame(): void {
 
   if (phase === 'playing') {
     const result = advance(world, config, elapsed, carryMs, {
-      ollie: pendingOllie,
+      ollie: pendingPress,
       gesture: pendingGesture,
+      jumpHeld: input.held(),
     });
     world = result.world;
     carryMs = result.carryMs;
-    pendingOllie = false;
+    pendingPress = false;
     pendingGesture = null;
 
     // SFX from state transitions (frame granularity is plenty at 60fps).

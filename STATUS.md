@@ -4,14 +4,16 @@
 > (or a different agent) should be able to resume from this file alone.
 
 ## Now
-- **Wave A / Slice 0 — Scaffold:** IN PROGRESS (Architect). Monorepo, tooling,
-  arch-guard, gate, CI, Vercel config, type contract + Rng/Clock, docs.
+- **Wave B fan-out:** dispatching Slice 1 (core sim) + Slice 2 (renderer) as
+  disjoint background builders.
 
 ## Done
-- _(none yet — slice 0 lands first)_
+- **Wave A / Slice 0 — Scaffold:** ✅ green + pushed. Monorepo, ESLint
+  arch-guards (verified firing), `gate.sh`, CI, Vercel auto-deploy config,
+  `@skate/core` type contract + deterministic Rng/Clock, pipeline docs.
 
 ## Running (builders)
-- _(none — fan-out begins after slice 0 is green + pushed)_
+- _(dispatching Slice 1 + Slice 2)_
 
 ## Queued
 - **Slice 1 — Core sim** (`packages/core/src/**`): `createWorld`, `step`,
@@ -22,7 +24,7 @@
   HUD/start/game-over, high-score; + Architect runtime smoke.
 
 ## Last known-green gate counts
-- _pending first gate run_
+- Slice 0: `typecheck=0 lint=0 content=0 test=0 build=0` · core 8 tests (2 files)
 
 ## Active constraints
 See `CLAUDE.md` §constraints. Enforced by eslint arch-guard + `lint:content` +

@@ -20,7 +20,7 @@ independent ones fan out in parallel (pipeline §2).
   backdrop, bail state. Cosmetic only; codes against the Slice-0 contract.
 
 ## Wave C — assembly (serial; integrates B)
-- [ ] **Slice 3 — App** · surface: `apps/web/src/**`
+- [x] **Slice 3 — App** · surface: `apps/web/src/**`
   Pointer/touch + keyboard input → `InputIntent`; fixed-timestep accumulator
   loop driving core; mount renderer; HUD (score/best), start + game-over
   screens; versioned `localStorage` high-score; restart. Then Architect

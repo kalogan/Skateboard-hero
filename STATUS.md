@@ -4,10 +4,14 @@
 > (or a different agent) should be able to resume from this file alone.
 
 ## Now
-- **Wave C / Slice 3 — App assembly:** next (Architect): input → InputIntent,
-  fixed-timestep loop, HUD/start/game-over, high-score, then runtime smoke.
+- **MVP vertical slice COMPLETE** ✅ — gate green + runtime-smoke green
+  (start→play→bail→retry, no console errors). Playable: `pnpm dev`.
 
 ## Done
+- **Wave C / Slice 3 — App assembly:** ✅ Architect-built + verified. One-button
+  input (tap/Space → ollie), pure fixed-timestep accumulator loop, phase machine
+  (start→playing→over), DOM HUD, versioned localStorage high-score, restart.
+  Runtime smoke harness (`pnpm smoke`, Playwright) drives the real built app.
 - **Wave A / Slice 0 — Scaffold:** ✅ green + pushed.
 - **Wave B / Slice 1 — Core sim:** ✅ Architect-verified green. Pure
   `createWorld`/`step`, ollie physics, seeded spawner, x-span+height collision,
@@ -24,8 +28,9 @@
   HUD/start/game-over, high-score; + Architect runtime smoke.
 
 ## Last known-green gate counts
-- After Wave B (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
-  · core **32** tests (4 files) · render-canvas **11** tests (1 file) = 43 total.
+- MVP (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
+  · core **32** · render-canvas **11** · web **9** = **52** tests.
+- Runtime smoke: ✅ start→play→bail→retry, zero console/page errors.
 
 ## Active constraints
 See `CLAUDE.md` §constraints. Enforced by eslint arch-guard + `lint:content` +

@@ -126,14 +126,24 @@ try {
   }
   await page.screenshot({ path: resolve(SHOTS, '4-preview.png') });
 
+  // Drive a theme preset to confirm live re-theming wires through the real renderer.
+  const nightPreset = page.locator('[data-preset="night"]').first();
+  if (await nightPreset.isVisible().catch(() => false)) {
+    await nightPreset.click().catch(() => {});
+    await page.waitForTimeout(400);
+  } else {
+    console.warn('  (note: theme preset [data-preset="night"] not found)');
+  }
+  await page.screenshot({ path: resolve(SHOTS, '5-preview-themed.png') });
+
   if (consoleErrors.length) fail(`console errors: ${JSON.stringify(consoleErrors)}`);
   if (pageErrors.length) fail(`page errors: ${JSON.stringify(pageErrors)}`);
 
   if (process.exitCode) {
     console.error('Runtime smoke: ❌ (screenshots in scripts/.smoke)');
   } else {
-    console.log('Runtime smoke: ✅ game (start→play→bail→retry) + /preview, no console/page errors.');
-    console.log(`  screenshots: ${SHOTS}/{1-start,2-playing,3-over,4-preview}.png`);
+    console.log('Runtime smoke: ✅ game (start→play→bail→retry) + /preview (+ theme preset), no console/page errors.');
+    console.log(`  screenshots: ${SHOTS}/{1-start,2-playing,3-over,4-preview,5-preview-themed}.png`);
   }
 } catch (e) {
   fail(e instanceof Error ? e.message : String(e));

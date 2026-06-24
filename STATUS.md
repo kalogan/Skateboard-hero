@@ -52,10 +52,11 @@
   HUD/start/game-over, high-score; + Architect runtime smoke.
 
 ## Last known-green gate counts
-- Theme-seam wave (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
-  · core **41** · render-canvas **17** · web **60** = **118** tests.
-- Runtime smoke: ✅ game + /preview (incl. Night theme preset), zero console/page errors.
-- Renderer now takes a `RenderTheme`; `/preview` has live palette/parallax/ground knobs + presets.
+- Lane-mode wave (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
+  · core **73** · render-canvas **31** · web **64** = **168** tests.
+- Runtime smoke: ✅ game + /preview (theme preset + Lanes mode A/B), zero console/page errors.
+- `SimConfig.mode` 'classic'|'lanes' (additive); lanes = vertical Temple-Run-like
+  dodge, exercised via the `/preview` game-mode toggle. Shipped game stays 'classic'.
 
 ## Active constraints
 See `CLAUDE.md` §constraints. Enforced by eslint arch-guard + `lint:content` +

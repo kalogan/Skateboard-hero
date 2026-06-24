@@ -411,6 +411,235 @@ describe('createRenderer', () => {
   });
 });
 
+// ────────────────────────────────────────────────────────────────────────
+// LANE MODE — vertical, bottom-to-top view (config.mode === 'lanes').
+// ────────────────────────────────────────────────────────────────────────
+describe('createRenderer — lane mode', () => {
+  const LANE_CONFIG: typeof DEFAULT_CONFIG = {
+    ...DEFAULT_CONFIG,
+    mode: 'lanes',
+    laneCount: 3,
+  };
+  const LANE_OPTS: RendererOptions = { width: 900, height: 600, config: LANE_CONFIG };
+
+  /** Lane centre screen-x for a given lateral position (matches the renderer). */
+  const laneScreenX = (lateral: number, width = 900, laneCount = 3): number => {
+    const laneScreenWidth = width / laneCount;
+    return (lateral + 0.5) * laneScreenWidth;
+  };
+
+  it('draws the board at the expected lateral screen-x for world.lateral', () => {
+    const stub = new StubContext();
+    const r = createRenderer(asCtx(stub), LANE_OPTS);
+    r.draw(makeWorld({ lane: 2, lateral: 2 }));
+    const expectedX = laneScreenX(2);
+    const hit = stub
+      .named('translate')
+      .some((c) => Math.abs(c.args[0]! - expectedX) < 1e-6);
+    expect(hit).toBe(true);
+  });
+
+  it('moves the board with lateral: lane 0 is left of lane 2', () => {
+    const left = new StubContext();
+    const right = new StubContext();
+    createRenderer(asCtx(left), LANE_OPTS).draw(makeWorld({ lane: 0, lateral: 0 }));
+    createRenderer(asCtx(right), LANE_OPTS).draw(makeWorld({ lane: 2, lateral: 2 }));
+    const tx = (s: StubContext): number => {
+      // The board translate is the one near a lane centre, with x within road.
+      const t = s.named('translate').find((c) => c.args[0]! > 0 && c.args[0]! < 900);
+      if (!t) throw new Error('board translate not found');
+      return t.args[0]!;
+    };
+    expect(tx(left)).toBeLessThan(tx(right));
+    expect(tx(left)).toBeCloseTo(laneScreenX(0), 6);
+    expect(tx(right)).toBeCloseTo(laneScreenX(2), 6);
+  });
+
+  it('draws one shape group (save/restore) per lane-assigned obstacle', () => {
+    const baseStub = new StubContext();
+    createRenderer(asCtx(baseStub), LANE_OPTS).draw(makeWorld({ obstacles: [] }));
+    const baseSaves = baseStub.named('save').length;
+
+    const stub = new StubContext();
+    const obstacles = [
+      makeObstacle('cone', 600, { lane: 0 }),
+      makeObstacle('rail', 500, { lane: 1 }),
+      makeObstacle('bench', 400, { lane: 2 }),
+      makeObstacle('crack', 350, { lane: 1 }),
+    ];
+    createRenderer(asCtx(stub), LANE_OPTS).draw(makeWorld({ obstacles }));
+    expect(stub.named('save').length).toBe(baseSaves + obstacles.length);
+  });
+
+  it('maps a farther-ahead obstacle higher on screen than a nearer one', () => {
+    // Both in the same lane; only forward x differs. Farther ahead (larger x)
+    // must render higher up = smaller screen-y.
+    const near = new StubContext();
+    const far = new StubContext();
+    createRenderer(asCtx(near), LANE_OPTS).draw(
+      makeWorld({ obstacles: [makeObstacle('cone', 200, { lane: 1 })] }),
+    );
+    createRenderer(asCtx(far), LANE_OPTS).draw(
+      makeWorld({ obstacles: [makeObstacle('cone', 500, { lane: 1 })] }),
+    );
+    // The cone apex is a moveTo; compare the obstacle's screen-y via its ellipse
+    // contact shadow (recorded as ellipse with the base screen-y).
+    const shadowY = (s: StubContext): number => {
+      const e = s.named('ellipse');
+      // The obstacle shadow is the first ellipse (board shadow comes later, at
+      // boardScreenY); pick the smallest y among obstacle ellipses by lane x.
+      const laneX = laneScreenX(1);
+      const hit = e.find((c) => Math.abs(c.args[0]! - laneX) < 1e-6);
+      if (!hit) throw new Error('obstacle shadow not found');
+      return hit.args[1]!;
+    };
+    expect(shadowY(far)).toBeLessThan(shadowY(near));
+  });
+
+  it('places each obstacle at its lane screen-x', () => {
+    const stub = new StubContext();
+    createRenderer(asCtx(stub), LANE_OPTS).draw(
+      makeWorld({ obstacles: [makeObstacle('bench', 400, { lane: 0 })] }),
+    );
+    const laneX = laneScreenX(0);
+    // The bench shadow ellipse is centred on the lane.
+    const atLane = stub
+      .named('ellipse')
+      .some((c) => Math.abs(c.args[0]! - laneX) < 1e-6);
+    expect(atLane).toBe(true);
+  });
+
+  it('jump height lifts the board higher (smaller screen-y)', () => {
+    const grounded = new StubContext();
+    const airborne = new StubContext();
+    createRenderer(asCtx(grounded), LANE_OPTS).draw(
+      makeWorld({ lane: 1, lateral: 1, board: makeBoard({ y: 0 }) }),
+    );
+    createRenderer(asCtx(airborne), LANE_OPTS).draw(
+      makeWorld({ lane: 1, lateral: 1, board: makeBoard({ y: 120, grounded: false }) }),
+    );
+    const boardTy = (s: StubContext): number => {
+      const laneX = laneScreenX(1);
+      const t = s.named('translate').find((c) => Math.abs(c.args[0]! - laneX) < 1e-6);
+      if (!t) throw new Error('board translate not found');
+      return t.args[1]!;
+    };
+    expect(boardTy(airborne)).toBeLessThan(boardTy(grounded));
+  });
+
+  it('renders a distinct crash tint when bailed (full-frame fillRect)', () => {
+    const rolling = new StubContext();
+    const bailed = new StubContext();
+    createRenderer(asCtx(rolling), LANE_OPTS).draw(
+      makeWorld({ status: 'rolling', lane: 1, lateral: 1 }),
+    );
+    createRenderer(asCtx(bailed), LANE_OPTS).draw(
+      makeWorld({ status: 'bailed', lane: 1, lateral: 1 }),
+    );
+    const fullFrame = (s: StubContext): number =>
+      s.named('fillRect').filter((c) => c.args[2] === 900 && c.args[3] === 600).length;
+    expect(fullFrame(bailed)).toBeGreaterThan(fullFrame(rolling));
+  });
+
+  it('never throws across ready / rolling / bailed', () => {
+    const r = createRenderer(asCtx(new StubContext()), LANE_OPTS);
+    const obstacles = [
+      makeObstacle('cone', 600, { lane: 0 }),
+      makeObstacle('rail', 450, { lane: 2 }),
+    ];
+    for (const status of ['ready', 'rolling', 'bailed'] as const) {
+      expect(() =>
+        r.draw(
+          makeWorld({
+            status,
+            lane: 1,
+            lateral: 1.4,
+            obstacles,
+            board: makeBoard({ y: 60, grounded: false, rotation: 2, trick: 'kickflip' }),
+          }),
+        ),
+      ).not.toThrow();
+    }
+  });
+
+  it('tolerates a missing lateral / obstacle lane without throwing', () => {
+    const r = createRenderer(asCtx(new StubContext()), LANE_OPTS);
+    expect(() =>
+      r.draw(makeWorld({ obstacles: [makeObstacle('cone', 400)] })),
+    ).not.toThrow();
+  });
+
+  it('clears the frame each draw in lane mode', () => {
+    const stub = new StubContext();
+    createRenderer(asCtx(stub), LANE_OPTS).draw(makeWorld({ lane: 1, lateral: 1 }));
+    expect(stub.named('clearRect')[0]?.args).toEqual([0, 0, 900, 600]);
+  });
+
+  it('resize works in lane mode (board re-anchors to new height)', () => {
+    const a = new StubContext();
+    const b = new StubContext();
+    createRenderer(asCtx(a), { ...LANE_OPTS, width: 900, height: 400 }).draw(
+      makeWorld({ lane: 1, lateral: 1 }),
+    );
+    createRenderer(asCtx(b), { ...LANE_OPTS, width: 900, height: 1000 }).draw(
+      makeWorld({ lane: 1, lateral: 1 }),
+    );
+    const boardTy = (s: StubContext): number => {
+      const laneX = laneScreenX(1);
+      const t = s.named('translate').find((c) => Math.abs(c.args[0]! - laneX) < 1e-6);
+      if (!t) throw new Error('board translate not found');
+      return t.args[1]!;
+    };
+    // Taller canvas → board sits lower (larger screen-y) than the short one.
+    expect(boardTy(b)).toBeGreaterThan(boardTy(a));
+
+    // resize() on a live renderer must not throw and keeps drawing.
+    const r = createRenderer(asCtx(new StubContext()), LANE_OPTS);
+    expect(() => {
+      r.resize(900, 1000);
+      r.draw(makeWorld({ lane: 1, lateral: 1 }));
+    }).not.toThrow();
+  });
+
+  it('is deterministic in lane mode: same world yields identical calls', () => {
+    const a = new StubContext();
+    const b = new StubContext();
+    const world = makeWorld({
+      lane: 1,
+      lateral: 1.3,
+      distance: 1234.5,
+      obstacles: [makeObstacle('cone', 600, { lane: 0 }), makeObstacle('crack', 320, { lane: 2 })],
+      board: makeBoard({ y: 40, grounded: false, rotation: 0.9 }),
+    });
+    createRenderer(asCtx(a), LANE_OPTS).draw(world);
+    createRenderer(asCtx(b), LANE_OPTS).draw(world);
+    expect(a.calls).toEqual(b.calls);
+  });
+
+  it('never mutates the world in lane mode', () => {
+    const r = createRenderer(asCtx(new StubContext()), LANE_OPTS);
+    const world = makeWorld({
+      lane: 2,
+      lateral: 2,
+      obstacles: [makeObstacle('cone', 600, { lane: 1 })],
+      board: makeBoard({ y: 30, grounded: false, rotation: 0.5 }),
+    });
+    const snapshot = JSON.stringify(world);
+    r.draw(world);
+    expect(JSON.stringify(world)).toBe(snapshot);
+  });
+
+  it('classic mode is unaffected by the lane branch', () => {
+    // A classic-config draw must produce the same calls whether or not lane
+    // fields are present on the world (they are ignored in classic).
+    const plain = new StubContext();
+    const withLane = new StubContext();
+    createRenderer(asCtx(plain), OPTS).draw(makeWorld());
+    createRenderer(asCtx(withLane), OPTS).draw(makeWorld({ lane: 2, lateral: 2 }));
+    expect(withLane.calls).toEqual(plain.calls);
+  });
+});
+
 /** Run a draw and return the board's translate-y (its screen vertical anchor). */
 function boardTranslateY(world: WorldState): number {
   const stub = new StubContext();

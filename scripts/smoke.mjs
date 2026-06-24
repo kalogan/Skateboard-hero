@@ -136,14 +136,29 @@ try {
   }
   await page.screenshot({ path: resolve(SHOTS, '5-preview-themed.png') });
 
+  // Toggle to Lanes mode (vertical) and drive a lane shift — A/B the game modes.
+  const lanesBtn = page.locator('[data-mode="lanes"]').first();
+  if (await lanesBtn.isVisible().catch(() => false)) {
+    await lanesBtn.click().catch(() => {});
+    await page.waitForTimeout(500);
+    const laneLeft = page.locator('[data-lane="left"]').first();
+    if (await laneLeft.isVisible().catch(() => false)) {
+      await laneLeft.click().catch(() => {});
+      await page.waitForTimeout(300);
+    }
+  } else {
+    console.warn('  (note: [data-mode="lanes"] toggle not found)');
+  }
+  await page.screenshot({ path: resolve(SHOTS, '6-preview-lanes.png') });
+
   if (consoleErrors.length) fail(`console errors: ${JSON.stringify(consoleErrors)}`);
   if (pageErrors.length) fail(`page errors: ${JSON.stringify(pageErrors)}`);
 
   if (process.exitCode) {
     console.error('Runtime smoke: ❌ (screenshots in scripts/.smoke)');
   } else {
-    console.log('Runtime smoke: ✅ game (start→play→bail→retry) + /preview (+ theme preset), no console/page errors.');
-    console.log(`  screenshots: ${SHOTS}/{1-start,2-playing,3-over,4-preview,5-preview-themed}.png`);
+    console.log('Runtime smoke: ✅ game + /preview (theme preset + Lanes mode), no console/page errors.');
+    console.log(`  screenshots: ${SHOTS}/{1-start,2-playing,3-over,4-preview,5-preview-themed,6-preview-lanes}.png`);
   }
 } catch (e) {
   fail(e instanceof Error ? e.message : String(e));

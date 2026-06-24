@@ -20,6 +20,17 @@ export interface Vec2 {
 export type GameStatus = 'ready' | 'rolling' | 'bailed';
 
 /**
+ * Which movement model the sim runs.
+ *  - `'classic'` — the shipped horizontal timing-ollie dodger: roll forward,
+ *    tap/flick to ollie over ground obstacles.
+ *  - `'lanes'` — a vertical lane-dodge runner (Temple-Run-like): the board
+ *    auto-climbs and shifts left/right between lanes to dodge obstacles
+ *    (jump still clears jumpable ones). Selected via `SimConfig.mode`.
+ * Defaults to `'classic'` when unset (additive — existing worlds are classic).
+ */
+export type GameMode = 'classic' | 'lanes';
+
+/**
  * Kinds of obstacle. One verb (ollie) clears all of them; the skill is timing.
  * The catalog of concrete definitions lives in content (Slice 1) and is
  * validated by `lint:content`.
@@ -110,6 +121,12 @@ export interface Obstacle {
   readonly height: number;
   /** True once the skater has cleared it and it has been scored. */
   readonly cleared: boolean;
+  /**
+   * Lane-mode only: which lane (0 = leftmost) this obstacle occupies. The
+   * renderer places it laterally and lane collision compares it to the board's
+   * lane. `undefined`/absent in classic mode.
+   */
+  readonly lane?: number;
 }
 
 /** The skater + board. The board's screen x is fixed; the world scrolls past. */
@@ -164,6 +181,16 @@ export interface WorldState {
   readonly rng: RngState;
   /** World units until the next obstacle spawn is considered. */
   readonly nextSpawnIn: number;
+  /**
+   * Lane-mode only: the target lane index (0 = leftmost). `undefined`/absent in
+   * classic mode. The renderer + lane collision read this.
+   */
+  readonly lane?: number;
+  /**
+   * Lane-mode only: continuous lateral lane position (in lane units), animating
+   * toward `lane` for a smooth slide. `undefined`/absent in classic mode.
+   */
+  readonly lateral?: number;
 }
 
 /**
@@ -201,6 +228,14 @@ export interface SimConfig {
    * awards its `points`. Must be non-empty.
    */
   readonly tricks: readonly TrickDef[];
+  /** Movement model. Defaults to `'classic'` when unset. */
+  readonly mode?: GameMode;
+  /** Lane-mode: number of lanes. */
+  readonly laneCount?: number;
+  /** Lane-mode: world-unit spacing between adjacent lane centers. */
+  readonly laneWidth?: number;
+  /** Lane-mode: lateral shift speed, in lanes per second. */
+  readonly laneShiftSpeed?: number;
 }
 
 /**

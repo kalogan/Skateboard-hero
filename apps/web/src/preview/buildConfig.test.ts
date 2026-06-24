@@ -77,4 +77,36 @@ describe('buildConfig', () => {
     });
     expect(cfg.maxSpeed).toBeGreaterThanOrEqual(cfg.baseSpeed);
   });
+
+  it('defaults to classic mode (reproduces the shipped model)', () => {
+    expect(defaultKnobs().mode).toBe('classic');
+    expect(buildConfig(defaultKnobs()).mode).toBe('classic');
+    expect(buildConfig(defaultKnobs()).mode).toBe(DEFAULT_CONFIG.mode);
+  });
+
+  it('the mode knob drives SimConfig.mode (classic ⇄ lanes)', () => {
+    expect(buildConfig({ ...defaultKnobs(), mode: 'lanes' }).mode).toBe('lanes');
+    expect(buildConfig({ ...defaultKnobs(), mode: 'classic' }).mode).toBe(
+      'classic',
+    );
+  });
+
+  it('carries lane tuning and keeps laneCount a positive integer', () => {
+    const cfg = buildConfig({
+      ...defaultKnobs(),
+      mode: 'lanes',
+      laneCount: 4.6,
+      laneShiftSpeed: 12,
+    });
+    expect(cfg.laneCount).toBe(5);
+    expect(cfg.laneShiftSpeed).toBe(12);
+    // A degenerate laneCount is floored to a usable minimum.
+    expect(buildConfig({ ...defaultKnobs(), laneCount: 0 }).laneCount).toBe(1);
+  });
+
+  it('lane defaults read straight from DEFAULT_CONFIG (no fork)', () => {
+    const cfg = buildConfig(defaultKnobs());
+    expect(cfg.laneCount).toBe(DEFAULT_CONFIG.laneCount);
+    expect(cfg.laneShiftSpeed).toBe(DEFAULT_CONFIG.laneShiftSpeed);
+  });
 });

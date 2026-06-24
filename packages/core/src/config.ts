@@ -50,4 +50,10 @@ export const DEFAULT_CONFIG: SimConfig = {
   spawnGapMax: 520,
   obstacles: DEFAULT_OBSTACLES,
   tricks: DEFAULT_TRICKS,
+  // Movement model. The shipped game is 'classic'; 'lanes' is the vertical
+  // Temple-Run-like mode, currently exercised via the /preview A/B toggle.
+  mode: 'classic',
+  laneCount: 3,
+  laneWidth: 90,
+  laneShiftSpeed: 8,
 };

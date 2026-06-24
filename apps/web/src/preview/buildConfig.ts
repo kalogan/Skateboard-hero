@@ -16,6 +16,14 @@ import {
   type SimConfig,
 } from '@skate/core';
 
+/**
+ * `GameMode` is part of the core type contract but is not re-exported from the
+ * `@skate/core` index, so we derive it structurally from the public
+ * `SimConfig.mode` field rather than forking the union (production-truthful:
+ * one source of truth, no hand-kept copy). `NonNullable` drops the `?`.
+ */
+export type GameMode = NonNullable<SimConfig['mode']>;
+
 /** The live, inspectable knobs the panel exposes over a working `SimConfig`. */
 export interface PreviewKnobs {
   // ── Skateboard ──
@@ -33,6 +41,18 @@ export interface PreviewKnobs {
   // ── Points ──
   /** Per-trick point overrides, keyed by trick id. Absent = use the default. */
   readonly trickPoints: Readonly<Record<string, number>>;
+  // ── Game mode (A/B) ──
+  /**
+   * Movement model: `'classic'` (horizontal) or `'lanes'` (vertical
+   * Temple-Run-like). Drives `SimConfig.mode`; the two are different sim models,
+   * so switching restarts the run.
+   */
+  readonly mode: GameMode;
+  // ── Lane-mode tuning (only meaningful when `mode === 'lanes'`) ──
+  /** Number of lanes. */
+  readonly laneCount: number;
+  /** Lateral shift speed, in lanes per second. */
+  readonly laneShiftSpeed: number;
   // ── Determinism ──
   /** Seed for `createWorld`. The identity seed reproduces the on-disk run. */
   readonly seed: number;
@@ -54,6 +74,11 @@ export function defaultKnobs(): PreviewKnobs {
     enemySize: 1,
     enemyDensity: 1,
     trickPoints,
+    // Identity defaults: read straight from the production DEFAULT_CONFIG, so
+    // `mode === 'classic'` reproduces the shipped model untouched.
+    mode: DEFAULT_CONFIG.mode ?? 'classic',
+    laneCount: DEFAULT_CONFIG.laneCount ?? 3,
+    laneShiftSpeed: DEFAULT_CONFIG.laneShiftSpeed ?? 8,
     seed: IDENTITY_SEED,
   };
 }
@@ -104,5 +129,10 @@ export function buildConfig(knobs: PreviewKnobs): SimConfig {
     spawnGapMax,
     obstacles,
     tricks,
+    // Game-mode A/B. The lane knobs are always carried (harmless in classic;
+    // the sim only reads them when `mode === 'lanes'`); laneCount is kept >= 1.
+    mode: knobs.mode,
+    laneCount: Math.max(1, Math.round(knobs.laneCount)),
+    laneShiftSpeed: knobs.laneShiftSpeed,
   };
 }

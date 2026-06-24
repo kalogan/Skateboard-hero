@@ -49,7 +49,7 @@ import type {
   WorldState,
 } from './types.js';
 import type { TrickGesture } from './types.js';
-import { seedRng, nextRange, nextWeightedIndex } from './rng.js';
+import { seedRng, nextRange, nextInt, nextWeightedIndex } from './rng.js';
 
 /** Full radians of board spin imparted per air-second (cosmetic). */
 const SPIN_PER_SECOND = Math.PI * 2;
@@ -79,7 +79,7 @@ function trickIdForGesture(
  * run is replayable from this single integer.
  */
 export function createWorld(config: SimConfig, seed: number): WorldState {
-  return {
+  const base: WorldState = {
     status: 'ready',
     time: 0,
     distance: 0,
@@ -99,6 +99,20 @@ export function createWorld(config: SimConfig, seed: number): WorldState {
     // First spawn is scheduled on the first step from the seeded gap window.
     nextSpawnIn: 0,
   };
+  // Lane mode starts in the middle lane with the lateral position settled on it.
+  // Classic mode is left untouched (no `lane`/`lateral` fields — byte-identical).
+  if (config.mode === 'lanes') {
+    const laneCount = laneCountOf(config);
+    const startLane = Math.floor(laneCount / 2);
+    return { ...base, lane: startLane, lateral: startLane };
+  }
+  return base;
+}
+
+/** Resolve the configured lane count, clamped to at least one lane. */
+function laneCountOf(config: SimConfig): number {
+  const n = config.laneCount ?? 3;
+  return n >= 1 ? n : 1;
 }
 
 /** Forward speed at a given distance, ramped from base toward max. */
@@ -136,8 +150,12 @@ export function step(
   input: InputIntent,
   config: SimConfig,
 ): WorldState {
-  // Frozen once bailed — deterministic no-op.
+  // Frozen once bailed — deterministic no-op (both modes).
   if (world.status === 'bailed') return world;
+
+  // Dispatch on the movement model. `undefined` is treated as `'classic'` so
+  // existing worlds/configs keep the shipped horizontal behaviour untouched.
+  if (config.mode === 'lanes') return stepLanes(world, input, config);
 
   const dt = config.dt;
   const status = 'rolling';
@@ -263,5 +281,159 @@ export function step(
     obstacles,
     rng,
     nextSpawnIn,
+  };
+}
+
+/**
+ * Advance the world one fixed timestep in `'lanes'` mode — the vertical,
+ * Temple-Run-like lane-dodge runner. PURE, like `step`: returns a brand-new
+ * `WorldState`; never mutates `world`, `input`, or `config`.
+ *
+ * Mechanic (the renderer + preview code to this exact shape):
+ *  - Lanes are indexed `0..laneCount-1` (0 = leftmost). `world.lane` is the
+ *    discrete TARGET lane; `world.lateral` is the continuous position that
+ *    animates toward `lane` at `config.laneShiftSpeed` lanes/sec for a smooth
+ *    slide (cosmetic — collision uses the integer target lane).
+ *  - Forward axis is `distance` (renders vertically). The forward model is the
+ *    SAME as classic: the board's fixed forward position is `config.boardX`;
+ *    obstacles spawn ahead (`x > boardX`) and their `x` DECREASES toward the
+ *    board as the world advances. Speed/ramp, the spawner gap window, and the
+ *    vertical (jump) collision test are all reused from classic.
+ *  - Input: a discrete `'left'`/`'right'` gesture shifts the TARGET lane by one
+ *    (clamped at the edges); `input.ollie` while grounded does a plain hop
+ *    (reusing board.y/vy/gravity/ollieImpulse) to clear jumpable obstacles.
+ *  - Collision/bail: an obstacle bails the run when its forward span overlaps
+ *    the board AND `obstacle.lane === world.lane` (the integer target lane) AND
+ *    the board isn't airborne above the obstacle's height. A lane change or a
+ *    well-timed jump both let you survive.
+ *
+ *  Design choices (documented per the brief):
+ *   - MID-SLIDE MERCY: collision compares against the integer TARGET `lane`, not
+ *     the continuous `lateral`. The instant the player presses left/right they
+ *     are treated as occupying the new lane — committing to a dodge saves you
+ *     even mid-slide. This is forgiving by design (runner feel) and keeps the
+ *     collision rule a clean integer compare.
+ *   - JUMP IS A PLAIN HOP: the lane-mode jump selects NO catalog trick
+ *     (`board.trick` stays `null`) and awards NO trick points — it's purely a
+ *     "clear the obstacle" verb. `tricks`/`trickScore` stay classic concepts and
+ *     remain 0 in lane mode.
+ *   - SCORING: `score = floor(distance)`. Distance is the whole game.
+ */
+function stepLanes(
+  world: WorldState,
+  input: InputIntent,
+  config: SimConfig,
+): WorldState {
+  const dt = config.dt;
+  const laneCount = laneCountOf(config);
+  const shiftSpeed = config.laneShiftSpeed ?? 8;
+
+  // ── Speed + distance (difficulty ramp, identical model to classic) ──
+  const speed = speedAt(config, world.distance);
+  const advance = speed * dt;
+  const distance = world.distance + advance;
+  const time = world.time + dt;
+
+  let rng = world.rng;
+
+  // ── Lane shift (one discrete shift per left/right gesture, clamped) ──
+  const prevLane = world.lane ?? Math.floor(laneCount / 2);
+  let lane = prevLane;
+  if (input.gesture === 'left') lane = Math.max(0, prevLane - 1);
+  else if (input.gesture === 'right') lane = Math.min(laneCount - 1, prevLane + 1);
+
+  // ── Lateral animation toward the target lane at `shiftSpeed` lanes/sec ──
+  const prevLateral = world.lateral ?? prevLane;
+  let lateral = prevLateral;
+  const maxStep = shiftSpeed * dt;
+  if (lateral < lane) lateral = Math.min(lane, lateral + maxStep);
+  else if (lateral > lane) lateral = Math.max(lane, lateral - maxStep);
+
+  // ── Board physics (plain hop — no trick selection in lane mode) ──
+  let { y, vy, grounded } = world.board;
+  if (input.ollie && grounded) {
+    vy = config.ollieImpulse;
+    grounded = false;
+  }
+  if (!grounded) {
+    vy = vy + config.gravity * dt;
+    y = y + vy * dt;
+    if (y <= config.groundY) {
+      y = config.groundY;
+      vy = 0;
+      grounded = true;
+    }
+  }
+  // Lane-mode jump is a plain hop: no catalog trick, no spin score. `rotation`
+  // and `trick` stay at their classic neutral values so the shape is uniform.
+  const board = { y, vy, grounded, rotation: 0, trick: null };
+
+  // ── Spawner (seeded, weighted) with a seeded lane per obstacle ──
+  let nextSpawnIn = world.nextSpawnIn - advance;
+  const spawned: Obstacle[] = [];
+  while (nextSpawnIn <= 0) {
+    const weights = config.obstacles.map((o) => o.weight);
+    // Thread RNG sequentially: weighted KIND pick, lane roll, then the gap roll.
+    const [idx, rngAfterPick] = nextWeightedIndex(rng, weights);
+    const def = config.obstacles[idx]!;
+    const [obsLane, rngAfterLane] = nextInt(rngAfterPick, 0, laneCount - 1);
+    const [gap, rngAfterGap] = nextRange(
+      rngAfterLane,
+      config.spawnGapMin,
+      config.spawnGapMax,
+    );
+    rng = rngAfterGap;
+    const spawnX =
+      config.boardX + config.boardWidth + gap + Math.max(0, -nextSpawnIn);
+    spawned.push({
+      kind: def.kind,
+      x: spawnX,
+      width: def.width,
+      height: def.height,
+      cleared: false,
+      lane: obsLane,
+    });
+    nextSpawnIn += gap;
+  }
+
+  // ── Move obstacles, mark cleared, test lane collision, cull past the board ──
+  let bailed = false;
+  const obstacles: Obstacle[] = [];
+  const moveAndCollect = (obs: Obstacle): void => {
+    const x = obs.x - advance;
+    if (x + obs.width < 0) return; // culled once fully past the board
+    let cleared = obs.cleared;
+    const moved = { ...obs, x };
+    if (overlapsBoard(config, moved)) {
+      // Bail only in the OCCUPIED lane (integer target) when not jumping above it.
+      if (obs.lane === lane && collides(board, moved)) {
+        bailed = true;
+      }
+    } else if (!cleared && x + obs.width < config.boardX) {
+      cleared = true;
+    }
+    obstacles.push({ ...moved, cleared });
+  };
+  for (const obs of world.obstacles) moveAndCollect(obs);
+  for (const obs of spawned) moveAndCollect(obs);
+
+  // ── Scoring: distance is the whole game in lane mode ──
+  const score = Math.floor(distance);
+
+  return {
+    status: bailed ? 'bailed' : 'rolling',
+    time,
+    distance,
+    speed,
+    score,
+    // Lane-mode keeps tricks/trickScore as classic concepts: a hop scores nothing.
+    tricks: world.tricks,
+    trickScore: world.trickScore,
+    board,
+    obstacles,
+    rng,
+    nextSpawnIn,
+    lane,
+    lateral,
   };
 }

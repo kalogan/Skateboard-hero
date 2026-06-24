@@ -17,8 +17,8 @@ import { createGameAudio } from './audio/index.js';
 import { loadLeaderboard, qualifies, submitScore } from './leaderboard.js';
 import { createLeaderboardPanel } from './ui/leaderboard.js';
 
-/** Camera zoom for the gameplay layer (board/road/props 25% bigger). */
-const ZOOM = 1.25;
+/** Camera zoom for the whole scene (sky/parallax background + board/road/props 50% bigger). */
+const ZOOM = 1.5;
 
 // Config is rebuilt on resize so `spawnAhead` always lands obstacles just past
 // the visible right edge (see `computeSpawnAhead`).

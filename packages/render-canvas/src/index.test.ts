@@ -394,6 +394,42 @@ describe('createRenderer', () => {
     );
   });
 
+  it('wraps the background (sky/parallax) in the camera transform when scaled', () => {
+    // With a scale, the whole scene — including the sky gradient + parallax —
+    // is zoomed: a translate/scale/translate must precede the very first fill
+    // (the sky rect), proving the background draws inside the camera transform.
+    const stub = new StubContext();
+    createRenderer(asCtx(stub), { ...OPTS, scale: 1.5 }).draw(makeWorld());
+
+    const firstFillIdx = stub.calls.findIndex((c) => c.name === 'fillRect');
+    expect(firstFillIdx).toBeGreaterThan(-1);
+    const before = stub.calls.slice(0, firstFillIdx);
+    // A camera scale of 1.5 (not the trick scales, which only appear later for
+    // the board) precedes the sky fill.
+    const hasCameraScale = before.some(
+      (c) => c.name === 'scale' && c.args[0] === 1.5 && c.args[1] === 1.5,
+    );
+    const hasTranslate = before.some((c) => c.name === 'translate');
+    expect(hasCameraScale).toBe(true);
+    expect(hasTranslate).toBe(true);
+  });
+
+  it('scale:1 is unchanged: no camera transform wraps the background', () => {
+    // The default (unscaled) path must behave exactly as before — identical to
+    // explicitly passing scale:1, and with no camera scale(1.5,1.5).
+    const def = new StubContext();
+    const one = new StubContext();
+    createRenderer(asCtx(def), OPTS).draw(makeWorld());
+    createRenderer(asCtx(one), { ...OPTS, scale: 1 }).draw(makeWorld());
+    expect(one.calls).toEqual(def.calls);
+
+    // No translate precedes the first fill in the unscaled path (background is
+    // drawn directly, no camera transform).
+    const firstFillIdx = def.calls.findIndex((c) => c.name === 'fillRect');
+    const before = def.calls.slice(0, firstFillIdx);
+    expect(before.some((c) => c.name === 'translate')).toBe(false);
+  });
+
   it('resize updates layout so the ground line moves', () => {
     const small = new StubContext();
     const r = createRenderer(asCtx(small), { ...OPTS, width: 400, height: 400 });

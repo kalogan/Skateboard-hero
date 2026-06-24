@@ -100,53 +100,34 @@
   margin: 0 0 1rem;
 }
 
-.lb-steppers {
-  display: flex;
-  justify-content: center;
-  gap: 0.75rem;
-  margin-bottom: 1.25rem;
-}
-
-.lb-stepper {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.lb-step-btn {
-  width: 3.25rem;
-  height: 3.25rem;
-  border: none;
+.lb-name-input {
+  display: block;
+  width: 100%;
+  margin: 0 0 1.25rem;
+  padding: 0.85rem 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.14);
   border-radius: 0.6rem;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
   color: var(--lb-fg);
-  font-size: 1.5rem;
-  line-height: 1;
-  cursor: pointer;
+  /* ≥16px so iOS Safari does not zoom the viewport on focus. */
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  -webkit-user-select: text;
+  user-select: text;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
 
-.lb-step-btn:active {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.lb-char {
-  width: 3.25rem;
-  height: 4rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0.6rem;
-  background: rgba(255, 255, 255, 0.06);
-  font-size: 2.4rem;
-  font-weight: 800;
+.lb-name-input::placeholder {
+  color: var(--lb-muted);
+  font-weight: 500;
   letter-spacing: 0;
-  border: 2px solid transparent;
 }
 
-.lb-char.is-active {
+.lb-name-input:focus {
+  outline: none;
   border-color: var(--lb-accent);
 }
 

@@ -7,7 +7,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG, DEFAULT_OBSTACLES, DEFAULT_TRICKS } from '@skate/core';
-import { buildConfig, defaultKnobs, IDENTITY_SEED } from './buildConfig.js';
+import {
+  buildConfig,
+  defaultKnobs,
+  DEFAULT_SPAWN_AHEAD,
+  IDENTITY_SEED,
+} from './buildConfig.js';
 
 describe('buildConfig', () => {
   it('identity knobs reproduce the on-disk defaults', () => {
@@ -108,5 +113,21 @@ describe('buildConfig', () => {
     const cfg = buildConfig(defaultKnobs());
     expect(cfg.laneCount).toBe(DEFAULT_CONFIG.laneCount);
     expect(cfg.laneShiftSpeed).toBe(DEFAULT_CONFIG.laneShiftSpeed);
+  });
+
+  it('defaults spawnAhead to DEFAULT_SPAWN_AHEAD and drives SimConfig.spawnAhead', () => {
+    expect(defaultKnobs().spawnAhead).toBe(DEFAULT_SPAWN_AHEAD);
+    expect(buildConfig(defaultKnobs()).spawnAhead).toBe(DEFAULT_SPAWN_AHEAD);
+  });
+
+  it('the spawnAhead knob sets the lead distance (rounded, kept >= 1)', () => {
+    expect(buildConfig({ ...defaultKnobs(), spawnAhead: 1200 }).spawnAhead).toBe(
+      1200,
+    );
+    expect(buildConfig({ ...defaultKnobs(), spawnAhead: 333.7 }).spawnAhead).toBe(
+      334,
+    );
+    // A degenerate lead is floored to a usable minimum.
+    expect(buildConfig({ ...defaultKnobs(), spawnAhead: 0 }).spawnAhead).toBe(1);
   });
 });

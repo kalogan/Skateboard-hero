@@ -3,11 +3,10 @@
  * data layer `../leaderboard.ts`). Mounts into a given parent and renders two
  * faces:
  *
- *   • promptEntry — tappable 3-slot initials entry for a qualifying score.
- *     Each slot has +/- steppers cycling A–Z 0–9, so it works fully without a
- *     hardware keyboard (mobile-first). A submit button calls back with the
- *     chosen initials; the data layer sanitizes defensively.
- *   • showBoard — the ranked top-10, with an optional highlighted row (the row
+ *   • promptEntry — a free-text name input for a qualifying score. The player
+ *     types their name (autofocused, capped at NAME_MAX_LEN); Save or Enter
+ *     calls back with the raw text and the data layer sanitizes defensively.
+ *   • showBoard — the ranked top-5, with an optional highlighted row (the row
  *     the player just earned).
  *
  * The panel never touches storage itself; the app/Architect wires the data
@@ -15,10 +14,10 @@
  */
 
 import './leaderboard.css';
-import type { ScoreEntry } from '../leaderboard.js';
+import { NAME_MAX_LEN, type ScoreEntry } from '../leaderboard.js';
 
 export interface LeaderboardPanel {
-  /** Show the 3-char initials entry for a qualifying `score`. */
+  /** Show the free-text name entry for a qualifying `score`. */
   promptEntry(score: number, onSubmit: (name: string) => void): void;
   /** Render the ranked board; `highlightIndex` marks the player's row. */
   showBoard(entries: ScoreEntry[], opts?: { highlightIndex?: number }): void;
@@ -27,10 +26,6 @@ export interface LeaderboardPanel {
   /** Unmount and release listeners. */
   dispose(): void;
 }
-
-/** The alphabet the steppers cycle through. */
-const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-const SLOTS = 3;
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -68,67 +63,55 @@ export function createLeaderboardPanel(parent: HTMLElement): LeaderboardPanel {
     root.hidden = false;
     root.innerHTML = '';
 
-    // Start each slot at 'A'.
-    const indices = [0, 0, 0];
-
     const title = el('h2', 'lb-title');
     title.textContent = 'New High Score!';
     root.appendChild(title);
 
     const headline = el('p', 'lb-entry-headline');
-    headline.textContent = 'Enter your initials';
+    headline.textContent = 'Enter your name';
     root.appendChild(headline);
 
     const scoreEl = el('p', 'lb-entry-score');
     scoreEl.textContent = String(Math.floor(score));
     root.appendChild(scoreEl);
 
-    const steppers = el('div', 'lb-steppers');
-    const charEls: HTMLElement[] = [];
+    const input = el('input', 'lb-name-input');
+    input.type = 'text';
+    input.maxLength = NAME_MAX_LEN;
+    input.placeholder = 'Your name';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    // inputmode + the ≥16px font-size in CSS keep iOS from zoom-on-focus.
+    input.setAttribute('inputmode', 'text');
+    input.setAttribute('enterkeyhint', 'done');
+    input.setAttribute('aria-label', 'Your name');
+    root.appendChild(input);
 
-    for (let slot = 0; slot < SLOTS; slot++) {
-      const stepper = el('div', 'lb-stepper');
-
-      const up = el('button', 'lb-step-btn');
-      up.type = 'button';
-      up.textContent = '▲';
-      up.setAttribute('aria-label', `slot ${slot + 1} next letter`);
-
-      const charEl = el('div', 'lb-char');
-      charEl.textContent = ALPHABET[indices[slot]!]!;
-      charEls.push(charEl);
-
-      const down = el('button', 'lb-step-btn');
-      down.type = 'button';
-      down.textContent = '▼';
-      down.setAttribute('aria-label', `slot ${slot + 1} previous letter`);
-
-      const bump = (delta: number): void => {
-        indices[slot] =
-          (indices[slot]! + delta + ALPHABET.length) % ALPHABET.length;
-        charEl.textContent = ALPHABET[indices[slot]!]!;
-      };
-      on(up, 'click', () => bump(1));
-      on(down, 'click', () => bump(-1));
-
-      stepper.append(up, charEl, down);
-      steppers.appendChild(stepper);
-    }
-    root.appendChild(steppers);
+    let submitted = false;
+    const submitName = (): void => {
+      if (submitted) return; // guard against Enter + click double-fire
+      submitted = true;
+      onSubmit(input.value);
+    };
 
     const actions = el('div', 'lb-actions');
     const submit = el('button', 'lb-btn lb-btn-primary');
     submit.type = 'button';
     submit.textContent = 'Save';
-    on(submit, 'click', () => {
-      const name = indices.map((i) => ALPHABET[i]!).join('');
-      onSubmit(name);
-    });
+    on(submit, 'click', submitName);
     actions.appendChild(submit);
     root.appendChild(actions);
 
-    // First slot reads as the active focus visually.
-    charEls[0]?.classList.add('is-active');
+    on(input, 'keydown', (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        submitName();
+      }
+    });
+
+    // Autofocus once mounted (and select any default text for quick overwrite).
+    input.focus();
+    input.select();
   }
 
   function showBoard(

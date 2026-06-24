@@ -1,5 +1,5 @@
 /**
- * Versioned local top-10 leaderboard (pipeline constraint #5: everything
+ * Versioned local top-5 leaderboard (pipeline constraint #5: everything
  * persisted is versioned and degrades safely). Mirrors `storage.ts`: a bumped
  * `VERSION` or any malformed/foreign payload reads back as an empty board
  * rather than throwing. No backend, no network — localStorage only.
@@ -13,29 +13,41 @@ export interface ScoreEntry {
 const KEY = 'skate-hero-leaderboard';
 const VERSION = 1;
 
-/** Maximum entries kept on the board. */
-export const MAX_ENTRIES = 10;
-
-/** Initials length / shape: exactly 3 chars from A–Z and 0–9. */
-const NAME_LEN = 3;
-const DEFAULT_NAME = 'AAA';
-
 interface Persisted {
   readonly version: number;
   readonly entries: readonly unknown[];
 }
 
+/** Maximum entries kept on the board. */
+export const MAX_ENTRIES = 5;
+
+/** Maximum length of a typed player name (matches the UI input maxlength). */
+export const NAME_MAX_LEN = 12;
+const DEFAULT_NAME = 'YOU';
+
 /**
- * Coerce a name to exactly 3 uppercase A–Z / 0–9 characters. Anything else is
- * stripped; a too-short result is padded with the default fill ('A'). Always
- * returns a valid 3-char tag (default "AAA").
+ * Match control characters to strip them: the C0 range (U+0000–U+001F), DEL
+ * (U+007F), and the C1 range (U+0080–U+009F). Built from escapes so the source
+ * stays pure ASCII. Whitespace is normalized separately, before this runs.
+ */
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
+
+/**
+ * Coerce a typed name into a readable, storable label: collapse whitespace runs
+ * (incl. tabs/newlines) to a single space, strip any remaining control chars,
+ * trim the ends, and cap to `NAME_MAX_LEN`. Empty / all-whitespace /
+ * all-control input falls back to the default ("YOU"). Pure and versioned-safe:
+ * never throws, always returns a non-empty string of length ≤ NAME_MAX_LEN.
  */
 export function sanitizeName(raw: string): string {
   const cleaned = (raw ?? '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
-    .slice(0, NAME_LEN);
-  return (cleaned + DEFAULT_NAME).slice(0, NAME_LEN);
+    .replace(/\s+/g, ' ') // collapse whitespace (incl. tabs/newlines) first…
+    .replace(CONTROL_CHARS, '') // …then strip any remaining control chars
+    .trim()
+    .slice(0, NAME_MAX_LEN)
+    .trim();
+  return cleaned.length > 0 ? cleaned : DEFAULT_NAME;
 }
 
 /** Type-guard for a persisted entry of the current schema. */
@@ -58,7 +70,7 @@ function normalize(entries: ScoreEntry[]): ScoreEntry[] {
 }
 
 /**
- * Read the stored board (sorted desc, ≤10), or an empty board if
+ * Read the stored board (sorted desc, ≤5), or an empty board if
  * absent/corrupt/old-version.
  */
 export function loadLeaderboard(
@@ -77,7 +89,7 @@ export function loadLeaderboard(
 }
 
 /**
- * Would `score` make the top 10? True if the board has open slots or `score`
+ * Would `score` make the top 5? True if the board has open slots or `score`
  * beats the current lowest entry. Non-finite/≤0 scores never qualify.
  */
 export function qualifies(
@@ -92,7 +104,7 @@ export function qualifies(
 }
 
 /**
- * Insert a sanitized entry, sort desc, trim to 10, persist, and return the
+ * Insert a sanitized entry, sort desc, trim to 5, persist, and return the
  * resulting board. Persistence failures (private mode / quota) are non-fatal —
  * the returned board still reflects the insert.
  */

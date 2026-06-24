@@ -67,6 +67,11 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
   // ── Live THEME knob state (purely cosmetic; never touches the sim). Cloned
   //    from DEFAULT_THEME via defaultThemeKnobs(); fed to the REAL renderer. ──
   let themeKnobs: ThemeKnobs = defaultThemeKnobs();
+  // ── Camera zoom (purely cosmetic): passed as the REAL renderer's `scale`.
+  //    1 = no zoom; 1.5 = 50% bigger. Changing it recreates the renderer only
+  //    (the sim is untouched), like a theme knob. ──
+  const DEFAULT_ZOOM = 1.5;
+  let zoom = DEFAULT_ZOOM;
 
   // ── DOM scaffold ──
   const stage = el('div', 'pv-stage');
@@ -115,6 +120,7 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
       height: canvas.height,
       config,
       theme: buildTheme(themeKnobs),
+      scale: zoom,
     });
   }
 
@@ -215,6 +221,8 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
       ['speed', world.speed.toFixed(0)],
       ['tricks', String(world.tricks)],
       ['trick', world.board.trick ?? '—'],
+      ['zoom', `${zoom.toFixed(2)}×`],
+      ['lead', String(Math.round(knobs.spawnAhead))],
       ['seed', String(knobs.seed)],
     ];
     // Lane-mode only: surface the live lane index when the sim reports it.
@@ -276,7 +284,20 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
     rangeKnob(enemies, 'enemyDensity', 'density', 0.25, 4, 0.05, () => knobs.enemyDensity, (v) => {
       knobs = { ...knobs, enemyDensity: v };
     });
+    // Lead distance: world-unit distance ahead at which obstacles ENTER. A sim
+    // knob → rebuilds config + restarts the run (like the other obstacle knobs).
+    rangeKnob(enemies, 'spawnAhead', 'lead distance (spawnAhead, world units)', 200, 1400, 10, () => knobs.spawnAhead, (v) => {
+      knobs = { ...knobs, spawnAhead: v };
+    });
     panel.appendChild(enemies);
+
+    // Camera knobs — purely cosmetic. Zoom is the renderer's `scale`; changing
+    // it recreates the REAL renderer (no re-seed), mirroring the theme knobs.
+    const camera = group('Camera');
+    rangeKnob(camera, 'zoom', 'zoom (renderer scale)', 1.0, 2.0, 0.05, () => zoom, (v) => {
+      zoom = v;
+    }, applyTheme);
+    panel.appendChild(camera);
 
     // Points knobs — enumerated FROM DEFAULT_TRICKS (data-driven).
     const points = group('Points (per trick)');
@@ -326,6 +347,7 @@ export function createPreviewApp(root: HTMLElement): PreviewAppHandle {
       btn('Reset knobs', 'reset', () => {
         knobs = defaultKnobs();
         themeKnobs = defaultThemeKnobs();
+        zoom = DEFAULT_ZOOM;
         seedInput.value = String(knobs.seed);
         rebuildPanel();
         applyKnobs();

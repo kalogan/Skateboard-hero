@@ -24,9 +24,17 @@ const STEPS = 600;
 const TRIGGER = 100;
 
 /**
+ * Takeoff flick gestures, cycled deterministically so the replay exercises the
+ * gesture-driven trick selection (every named trick, including the Tre Flip) and
+ * pins the per-trick scoring — not just the plain ollie.
+ */
+const GESTURE_CYCLE = ['tap', 'down', 'left', 'up', 'right'] as const;
+
+/**
  * Deterministic input policy: ollie when grounded and the nearest obstacle that
- * still overlaps-or-leads the board is within the trigger window. Pure function
- * of `WorldState` — no clock, no randomness — so the whole replay is fixed.
+ * still overlaps-or-leads the board is within the trigger window. The takeoff
+ * gesture is chosen by a pure function of the trick count (which advances once
+ * per landed hop), so selection is fully reproducible — no clock, no randomness.
  */
 function pilot(world: WorldState): InputIntent {
   let nearest = Infinity;
@@ -35,7 +43,10 @@ function pilot(world: WorldState): InputIntent {
     const lead = o.x - DEFAULT_CONFIG.boardX;
     if (lead < nearest) nearest = lead;
   }
-  return { ollie: world.board.grounded && nearest > 0 && nearest < TRIGGER };
+  const ollie = world.board.grounded && nearest > 0 && nearest < TRIGGER;
+  if (!ollie) return { ollie: false };
+  const gesture = GESTURE_CYCLE[world.tricks % GESTURE_CYCLE.length]!;
+  return { ollie: true, gesture };
 }
 
 /** A compact, snapshot-friendly digest of a world (floats rounded for stability). */
@@ -111,45 +122,45 @@ describe('golden replay (determinism proof)', () => {
         boardY: 106.3333,
         boardVy: -246.6667,
         rotation: 3.0369,
-        trick: 'heelflip',
+        trick: 'ollie',
         grounded: false,
         obstacles: 2,
-        rng: 580542903,
-        nextSpawnIn: 178.7934,
+        rng: 3043944386,
+        nextSpawnIn: 343.2506,
       },
       300: {
         status: 'rolling',
         time: 5,
         distance: 1682.44,
         speed: 353.531,
-        score: 2432,
-        tricks: 4,
-        trickScore: 750,
-        boardY: 0,
-        boardVy: 0,
-        rotation: 0,
-        trick: null,
-        grounded: true,
-        obstacles: 1,
-        rng: 4179733332,
-        nextSpawnIn: 158.4977,
+        score: 2182,
+        tricks: 3,
+        trickScore: 500,
+        boardY: 119,
+        boardVy: 153.3333,
+        rotation: 1.7802,
+        trick: 'shuv360',
+        grounded: false,
+        obstacles: 2,
+        rng: 1148437376,
+        nextSpawnIn: 285.358,
       },
       600: {
         status: 'rolling',
         time: 10,
         distance: 3541.7929,
         speed: 390.7056,
-        score: 5391,
-        tricks: 9,
-        trickScore: 1850,
-        boardY: 32.6667,
-        boardVy: 620,
-        rotation: 0.3142,
-        trick: 'kickflip',
+        score: 5441,
+        tricks: 8,
+        trickScore: 1900,
+        boardY: 123.4444,
+        boardVy: -13.3333,
+        rotation: 2.3038,
+        trick: 'shuv360',
         grounded: false,
-        obstacles: 1,
-        rng: 3420015268,
-        nextSpawnIn: 26.9765,
+        obstacles: 2,
+        rng: 2284226322,
+        nextSpawnIn: 278.9967,
       },
     });
   });

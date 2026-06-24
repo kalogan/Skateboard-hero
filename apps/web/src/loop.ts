@@ -21,9 +21,11 @@ export interface AdvanceResult {
 
 /**
  * Fold `elapsedMs` of real time (plus any carried remainder) into fixed steps.
- * `intent` (the ollie flag + accompanying trick gesture) is applied to the FIRST
- * sub-step only, so one tap = one ollie/gesture intent regardless of how many
- * steps a frame runs; subsequent sub-steps get a neutral intent.
+ * The EDGE parts of `intent` — `ollie` (the takeoff trigger) and `gesture` (the
+ * trick) — are applied to the FIRST sub-step only, so one press = one ollie/
+ * gesture regardless of how many steps a frame runs. The CONTINUOUS part,
+ * `jumpHeld` (jump button still down → sustain a higher jump), is threaded to
+ * EVERY sub-step, matching the core's variable-jump contract.
  */
 export function advance(
   world: WorldState,
@@ -35,11 +37,13 @@ export function advance(
   const stepMs = config.dt * 1000;
   let acc = carryMs + Math.min(Math.max(elapsedMs, 0), MAX_FRAME_MS);
   let w = world;
+  const jumpHeld = intent.jumpHeld ?? false;
+  // First sub-step carries the edge intent; the rest only the continuous hold.
   let pending: InputIntent = intent;
-  const neutral: InputIntent = { ollie: false };
+  const sustain: InputIntent = { ollie: false, jumpHeld };
   while (acc >= stepMs) {
     w = step(w, pending, config);
-    pending = neutral;
+    pending = sustain;
     acc -= stepMs;
   }
   return { world: w, carryMs: acc };

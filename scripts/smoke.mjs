@@ -72,16 +72,17 @@ try {
   if (!/tap to skate/i.test(startText)) fail(`start overlay missing (saw: "${startText.trim()}")`);
   await page.screenshot({ path: resolve(SHOTS, '1-start.png') });
 
-  // ── Tap to start, exercise ollies/tricks, then let it bail ──
+  // ── Tap to start, then HOLD the jump (variable jump) and screenshot mid-air ──
   const center = { x: 195, y: 422 };
   await page.mouse.click(center.x, center.y); // start
-  // Fire a few ollies to exercise the trick + SFX path.
-  for (let i = 0; i < 5; i++) {
-    await page.keyboard.press('Space');
-    await page.waitForTimeout(120);
-  }
-  const scoreMid = Number((await page.textContent('[data-score]')) ?? '0');
+  await page.waitForTimeout(60);
+  // Hold Space → reduced gravity while rising → a higher jump. Capture near apex.
+  await page.keyboard.down('Space');
+  await page.waitForTimeout(180);
   await page.screenshot({ path: resolve(SHOTS, '2-playing.png') });
+  await page.keyboard.up('Space');
+  await page.waitForTimeout(120);
+  const scoreMid = Number((await page.textContent('[data-score]')) ?? '0');
   if (!(scoreMid > 0)) fail(`score did not advance while rolling (saw ${scoreMid})`);
 
   // Stop intervening and wait for an eventual bail → the leaderboard overlay shows.

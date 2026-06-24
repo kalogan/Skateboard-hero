@@ -52,8 +52,12 @@
   HUD/start/game-over, high-score; + Architect runtime smoke.
 
 ## Last known-green gate counts
-- Polish wave (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
-  · core **73** · render-canvas **33** · web **73** = **179** tests.
+- Variable-jump wave (Architect-verified): `typecheck=0 lint=0 content=0 test=0 build=0`
+  · core **84** · render-canvas **33** · web **87** = **204** tests.
+- Runtime smoke: ✅ held jump floats higher than a quick hop; tricks/leaderboard intact.
+- Jump: Super-Mario variable height — takeoff on press, `jumpHeld` sustains reduced
+  gravity (0.38×) up to `jumpHoldMaxTime` (0.22s); additive (quick hop + golden unchanged).
+- Prior polish wave: core 73 · render 33 · web 73 = 179.
 - Runtime smoke: ✅ game (typed-name high score, top-5, 1.5× zoom) + /preview
   (zoom + lead-distance knobs), zero console/page errors.
 - High score: free-text name (≤12) + top-5. Camera ZOOM 1.5 (whole scene incl.

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "pnpm install --frozen-lockfile --ignore-scripts",
+  "buildCommand": "pnpm --filter @skate/web build",
+  "outputDirectory": "apps/web/dist",
+  "github": {
+    "silent": true
+  },
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}

@@ -1,0 +1,102 @@
+:root {
+  color-scheme: dark;
+  --bg: #10101a;
+  --fg: #e8e8f0;
+  --accent: #ff5a7a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  touch-action: manipulation;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── HUD overlay (above the canvas; the renderer owns the canvas itself) ── */
+.hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none; /* taps fall through to the game */
+}
+
+.hud-stats {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-score {
+  font-size: clamp(28px, 7vw, 44px);
+  font-weight: 800;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+
+.hud-best {
+  font-size: clamp(13px, 3.5vw, 18px);
+  opacity: 0.75;
+  align-self: center;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 8, 16, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+.overlay[hidden] {
+  display: none;
+}
+
+.overlay-card {
+  text-align: center;
+  padding: 24px 32px;
+}
+
+.overlay-card h1 {
+  margin: 0 0 8px;
+  font-size: clamp(28px, 9vw, 52px);
+}
+
+.overlay-card .big {
+  margin: 6px 0;
+  font-size: clamp(32px, 12vw, 72px);
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.overlay-card .hint {
+  margin: 8px 0 0;
+  opacity: 0.7;
+  font-size: clamp(13px, 4vw, 18px);
+}

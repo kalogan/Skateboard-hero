@@ -1,16 +1,21 @@
 /**
- * App entry (Slice 0 shell).
+ * App entry (Slice 3) — assembles the vertical slice.
  *
- * Slice 3 owns this surface: it adds the input layer (tap/Space → InputIntent),
- * the fixed-timestep rAF loop (accumulate real time, run N core `step()`s),
- * mounts the renderer, the HUD/start/game-over screens, and versioned
- * high-score persistence. For now it just mounts a canvas + renderer so the app
- * boots and the seams are wired.
+ * Wires the input layer, a fixed-timestep rAF loop driving the authoritative
+ * core `step()`, the cosmetic renderer, the HUD, and versioned high-score
+ * persistence. A small phase machine (start → playing → over) decides what a
+ * tap means; the sim itself stays untouched and authoritative.
  */
 
 import './style.css';
-import { DEFAULT_CONFIG } from '@skate/core';
+import { createWorld, DEFAULT_CONFIG, type WorldState } from '@skate/core';
 import { createRenderer } from '@skate/render-canvas';
+import { advance } from './loop.js';
+import { createInput } from './input.js';
+import { createHud, type Phase } from './hud.js';
+import { loadBest, saveBest } from './storage.js';
+
+const config = DEFAULT_CONFIG;
 
 const root = document.querySelector<HTMLDivElement>('#app');
 if (!root) throw new Error('missing #app mount point');
@@ -31,18 +36,79 @@ fit();
 const renderer = createRenderer(ctx, {
   width: canvas.width,
   height: canvas.height,
-  config: DEFAULT_CONFIG,
+  config,
 });
+
+const hud = createHud(root);
 
 window.addEventListener('resize', () => {
   fit();
   renderer.resize(canvas.width, canvas.height);
 });
 
-// Slice 3 replaces this with the real game loop.
-ctx.fillStyle = '#10101a';
-ctx.fillRect(0, 0, canvas.width, canvas.height);
-ctx.fillStyle = '#e8e8f0';
-ctx.font = '24px system-ui, sans-serif';
-ctx.textAlign = 'center';
-ctx.fillText('Skateboard Hero — scaffold ready', canvas.width / 2, canvas.height / 2);
+// ── Game state (app-level) ──
+let phase: Phase = 'start';
+let world: WorldState = createWorld(config, freshSeed());
+let best = loadBest(window.localStorage);
+let carryMs = 0;
+let lastMs = performance.now();
+let pendingOllie = false;
+
+function freshSeed(): number {
+  // Seeding is an app concern (the core never reads wall-clock). Vary per run.
+  return (performance.now() * 1000) >>> 0;
+}
+
+function startRun(): void {
+  world = createWorld(config, freshSeed());
+  carryMs = 0;
+  lastMs = performance.now();
+  pendingOllie = false;
+  phase = 'playing';
+  hud.setPhase('playing', 0, best);
+}
+
+function onTap(): void {
+  if (phase === 'playing') {
+    pendingOllie = true;
+  } else {
+    // start screen or game-over → (re)start a run.
+    startRun();
+  }
+}
+
+const disposeInput = createInput(window, onTap);
+
+function frame(): void {
+  const now = performance.now();
+  const elapsed = now - lastMs;
+  lastMs = now;
+
+  if (phase === 'playing') {
+    const result = advance(world, config, elapsed, carryMs, pendingOllie);
+    world = result.world;
+    carryMs = result.carryMs;
+    pendingOllie = false;
+
+    if (world.status === 'bailed') {
+      best = saveBest(window.localStorage, world.score);
+      phase = 'over';
+      hud.setPhase('over', world.score, best);
+    }
+  }
+
+  renderer.draw(world);
+  hud.update(world, best);
+  requestAnimationFrame(frame);
+}
+
+hud.setPhase('start', 0, best);
+requestAnimationFrame(frame);
+
+// Tidy up if the module is hot-replaced in dev.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    disposeInput();
+    hud.dispose();
+  });
+}

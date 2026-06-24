@@ -29,12 +29,18 @@ import type {
   TrickId,
   WorldState,
 } from '@skate/core';
+import type { RenderTheme } from './theme.js';
+
+export type { RenderTheme, RenderPalette, ParallaxTheme } from './theme.js';
+export { DEFAULT_THEME } from './theme.js';
 
 export interface RendererOptions {
   /** Logical render size in device pixels. */
   readonly width: number;
   readonly height: number;
   readonly config: SimConfig;
+  /** Cosmetic art knobs (colors, parallax, ground line). Defaults to DEFAULT_THEME. */
+  readonly theme?: RenderTheme;
 }
 
 export interface Renderer {

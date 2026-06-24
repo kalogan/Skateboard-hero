@@ -51,7 +51,13 @@ export type TrickGesture = 'tap' | 'up' | 'down' | 'left' | 'right' | 'doubleTap
  * content can grow tricks without a type churn, but the default set is enumerated
  * here for ergonomics.
  */
-export type TrickId = 'ollie' | 'kickflip' | 'heelflip' | 'shuv360' | 'popshuv';
+export type TrickId =
+  | 'ollie'
+  | 'kickflip'
+  | 'heelflip'
+  | 'shuv360'
+  | 'popshuv'
+  | 'treflip';
 
 /**
  * A content-authored trick template (catalog entry). Versioned content:

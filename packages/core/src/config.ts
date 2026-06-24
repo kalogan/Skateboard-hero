@@ -32,6 +32,7 @@ export const DEFAULT_TRICKS: readonly TrickDef[] = [
   { id: 'kickflip', name: 'Kickflip',    points: 250, weight: 3, flipAxis: 'kick', flipTurns: 1, spinTurns: 0,   spinDir: -1, gesture: 'left' },
   { id: 'heelflip', name: 'Heelflip',    points: 250, weight: 3, flipAxis: 'kick', flipTurns: 1, spinTurns: 0,   spinDir: 1,  gesture: 'doubleTap' },
   { id: 'shuv360',  name: '360 Shuvit',  points: 400, weight: 2, flipAxis: 'shuv', flipTurns: 0, spinTurns: 1,   spinDir: 1,  gesture: 'up' },
+  { id: 'treflip',  name: 'Tre Flip',    points: 500, weight: 1, flipAxis: 'kick', flipTurns: 1, spinTurns: 1,   spinDir: -1, gesture: 'right' },
 ];
 
 export const DEFAULT_CONFIG: SimConfig = {
